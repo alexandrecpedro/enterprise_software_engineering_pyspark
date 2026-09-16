@@ -1,0 +1,79 @@
+2026-09-16 00:14:50 - root - INFO - Logging configurado.
+2026-09-16 00:14:50 - __main__ - INFO - Obtido o app name: Analise de Pedidos
+2026-09-16 00:14:55 - pipeline.pipeline - INFO - Pipeline iniciado...
+2026-09-16 00:14:55 - pipeline.pipeline - INFO - Abrindo o dataframe de clientes
+2026-09-16 00:14:55 - pipeline.pipeline - INFO - Obtido o path de clientes: ./data-engineering-pyspark/data/input/dataset-json-clientes/data/clientes.json.gz
+2026-09-16 00:14:59 - pipeline.pipeline - INFO - Abrindo o dataframe de pedidos
+2026-09-16 00:14:59 - pipeline.pipeline - INFO - 
+        Obtidos os seguintes parâmetros de pedidos: 
+        - path: ./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/
+        - compression: gzip
+        - header: True
+        - separator: ;
+        
+2026-09-16 00:14:59 - pipeline.pipeline - INFO - Adicionando a coluna valor_total
+2026-09-16 00:14:59 - pipeline.pipeline - INFO - Calculando o valor total de pedidos por cliente e filtrar os 10 maiores
+2026-09-16 00:15:02 - pipeline.pipeline - INFO - Fazendo a junção dos dataframes
+2026-09-16 00:15:05 - pipeline.pipeline - INFO - Escrevendo o resultado em parquet
+2026-09-16 00:15:05 - pipeline.pipeline - INFO - Obtido o path de saída: ./data-engineering-pyspark/data/output/pedidos_por_cliente
+2026-09-16 00:15:07 - pipeline.pipeline - INFO - Pipeline concluído com sucesso!
+2026-09-16 00:15:07 - py4j.clientserver - INFO - Closing down clientserver connection
+2026-09-16 00:21:42 - root - INFO - Logging configurado.
+2026-09-16 00:21:42 - __main__ - INFO - Obtido o app name: Analise de Pedidos
+2026-09-16 00:21:47 - pipeline.pipeline - INFO - Pipeline iniciado...
+2026-09-16 00:21:47 - pipeline.pipeline - INFO - Abrindo o dataframe de clientes
+2026-09-16 00:21:47 - pipeline.pipeline - INFO - Obtido o path de clientes: ./data-engineering-pyspark/data/input/dataset-json-clientes/data/clientes.json.gz
+2026-09-16 00:21:50 - pipeline.pipeline - INFO - Abrindo o dataframe de pedidos
+2026-09-16 00:21:50 - pipeline.pipeline - INFO - 
+        Obtidos os seguintes parâmetros de pedidos: 
+        - path: ./PATH-INVALIDO/data/input/datasets-csv-pedidos/data/pedidos
+        - compression: gzip
+        - header: True
+        - separator: ;
+        
+2026-09-16 00:21:50 - io_utils.data_handler - ERROR - Erro de IO/Spark: [PATH_NOT_FOUND] Path does not exist: file:/workspaces/codespaces-blank/PATH-INVALIDO/data/input/datasets-csv-pedidos/data/pedidos. SQLSTATE: 42K03
+2026-09-16 00:21:50 - root - ERROR - FALHA CRÍTICA NO PIPELINE: [PATH_NOT_FOUND] Path does not exist: file:/workspaces/codespaces-blank/PATH-INVALIDO/data/input/datasets-csv-pedidos/data/pedidos. SQLSTATE: 42K03
+2026-09-16 00:21:51 - root - INFO - Sessão Spark finalizada.
+2026-09-16 00:21:51 - py4j.clientserver - INFO - Closing down clientserver connection
+2026-09-16 00:23:28 - root - INFO - Logging configurado.
+2026-09-16 00:23:28 - __main__ - INFO - Obtido o app name: Analise de Pedidos
+2026-09-16 00:23:34 - pipeline.pipeline - INFO - Pipeline iniciado...
+2026-09-16 00:23:34 - pipeline.pipeline - INFO - Abrindo o dataframe de clientes
+2026-09-16 00:23:34 - pipeline.pipeline - INFO - Obtido o path de clientes: ./data-engineering-pyspark/data/input/dataset-json-clientes/data/clientes.json.gz
+2026-09-16 00:23:37 - pipeline.pipeline - INFO - Abrindo o dataframe de pedidos
+2026-09-16 00:23:37 - pipeline.pipeline - INFO - 
+        Obtidos os seguintes parâmetros de pedidos: 
+        - path: ./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/
+        - compression: gzip
+        - header: True
+        - separator: ;
+        
+2026-09-16 00:23:37 - pipeline.pipeline - INFO - Adicionando a coluna valor_total
+2026-09-16 00:23:38 - pipeline.pipeline - INFO - Calculando o valor total de pedidos por cliente e filtrar os 10 maiores
+2026-09-16 00:23:40 - pipeline.pipeline - INFO - Fazendo a junção dos dataframes
+2026-09-16 00:23:43 - pipeline.pipeline - INFO - Escrevendo o resultado em parquet
+2026-09-16 00:23:43 - pipeline.pipeline - INFO - Obtido o path de saída: ./data-engineering-pyspark/data/output/pedidos_por_cliente
+2026-09-16 00:23:45 - pipeline.pipeline - INFO - Pipeline concluído com sucesso!
+2026-09-16 00:23:45 - root - INFO - Sessão Spark finalizada.
+2026-09-16 00:23:45 - py4j.clientserver - INFO - Closing down clientserver connection
+2026-09-16 00:32:47 - root - INFO - Logging configurado.
+2026-09-16 00:32:47 - __main__ - INFO - Obtido o app name: Analise de Pedidos
+2026-09-16 00:32:52 - pipeline.pipeline - INFO - Pipeline iniciado...
+2026-09-16 00:32:52 - pipeline.pipeline - INFO - Abrindo o dataframe de clientes
+2026-09-16 00:32:52 - pipeline.pipeline - INFO - Obtido o path de clientes: ./data-engineering-pyspark/data/input/dataset-json-clientes/data/clientes.json.gz
+2026-09-16 00:32:55 - pipeline.pipeline - INFO - Abrindo o dataframe de pedidos
+2026-09-16 00:32:55 - pipeline.pipeline - INFO - 
+        Obtidos os seguintes parâmetros de pedidos: 
+        - path: ./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/
+        - compression: gzip
+        - header: True
+        - separator: ;
+        
+2026-09-16 00:32:56 - pipeline.pipeline - INFO - Adicionando a coluna valor_total
+2026-09-16 00:32:56 - pipeline.pipeline - INFO - Calculando o valor total de pedidos por cliente e filtrar os 10 maiores
+2026-09-16 00:32:59 - pipeline.pipeline - INFO - Fazendo a junção dos dataframes
+2026-09-16 00:33:01 - pipeline.pipeline - INFO - Escrevendo o resultado em parquet
+2026-09-16 00:33:01 - pipeline.pipeline - INFO - Obtido o path de saída: ./data-engineering-pyspark/data/output/pedidos_por_cliente
+2026-09-16 00:33:04 - pipeline.pipeline - INFO - Pipeline concluído com sucesso!
+2026-09-16 00:33:04 - root - INFO - Sessão Spark finalizada.
+2026-09-16 00:33:04 - py4j.clientserver - INFO - Closing down clientserver connection
