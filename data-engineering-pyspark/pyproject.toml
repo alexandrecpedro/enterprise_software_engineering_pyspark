@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 name = "dataeng_pyspark_data_pipeline"
 version = "0.1.0"
 authors = [
-  { name="alexandrecpedro", email="alexandrecpedro@gmail.com" },
+  { name="alexandrecpedro", email="alexandrecpedro@live.com" },
 ]
 description = "Um pipeline de dados com PySpark estruturado com boas práticas de engenharia de software."
 readme = "README.md"
