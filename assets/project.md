@@ -1159,59 +1159,59 @@ from processing.transformations import Transformation
 
 def main():
   
-  config = carregar_config()
-  app_name = config['spark']['app_name']
-  print(f"Obtido o app name: {app_name}")
+    config = carregar_config()
+    app_name = config['spark']['app_name']
+    print(f"Obtido o app name: {app_name}")
 
-  spark = SparkSessionManager.get_spark_session(app_name=app_name)
+    spark = SparkSessionManager.get_spark_session(app_name=app_name)
 
-  data_handler = DataHandler(spark)
-  transformer = Transformation()
+    data_handler = DataHandler(spark)
+    transformer = Transformation()
 
-  print("Abrindo o dataframe de clientes")
-  path_clientes = config['paths']['clientes']
-  print(f"Obtido o path de clientes: {path_clientes}")
-  clientes_df = data_handler.load_clientes(path = path_clientes)
-  clientes_df.show(5, truncate=False)
+    print("Abrindo o dataframe de clientes")
+    path_clientes = config['paths']['clientes']
+    print(f"Obtido o path de clientes: {path_clientes}")
+    clientes_df = data_handler.load_clientes(path = path_clientes)
+    clientes_df.show(5, truncate=False)
 
-  print("Abrindo o dataframe de pedidos")
-  path_pedidos = config['paths']['pedidos']
-  compression_pedidos = config['file_options']['pedidos_csv']['compression']
-  header_pedidos = config['file_options']['pedidos_csv']['header']
-  separator_pedidos = config['file_options']['pedidos_csv']['sep']
+    print("Abrindo o dataframe de pedidos")
+    path_pedidos = config['paths']['pedidos']
+    compression_pedidos = config['file_options']['pedidos_csv']['compression']
+    header_pedidos = config['file_options']['pedidos_csv']['header']
+    separator_pedidos = config['file_options']['pedidos_csv']['sep']
 
-  print(f"""
-  Obtidos os seguintes parâmetros de pedidos: 
-  - path: {path_pedidos}
-  - compression: {compression_pedidos}
-  - header: {header_pedidos}
-  - separator: {separator_pedidos}
-  """)
+    print(f"""
+    Obtidos os seguintes parâmetros de pedidos: 
+    - path: {path_pedidos}
+    - compression: {compression_pedidos}
+    - header: {header_pedidos}
+    - separator: {separator_pedidos}
+    """)
 
-  pedidos_df = data_handler.load_pedidos(path = path_pedidos, compression=compression_pedidos, header=header_pedidos, sep=separator_pedidos)
+    pedidos_df = data_handler.load_pedidos(path = path_pedidos, compression=compression_pedidos, header=header_pedidos, sep=separator_pedidos)
 
-  print("Adicionando a coluna valor_total")
-  pedidos_df = transformer.add_valor_total_pedidos(pedidos_df)
-  pedidos_df.show(5, truncate=False)
+    print("Adicionando a coluna valor_total")
+    pedidos_df = transformer.add_valor_total_pedidos(pedidos_df)
+    pedidos_df.show(5, truncate=False)
 
-  print("Calculando o valor total de pedidos por cliente e filtrar os 10 maiores")
-  top_10_clientes_df = transformer.get_top_10_clientes(pedidos_df)
+    print("Calculando o valor total de pedidos por cliente e filtrar os 10 maiores")
+    top_10_clientes_df = transformer.get_top_10_clientes(pedidos_df)
 
-  top_10_clientes_df.show(10, truncate=False)
+    top_10_clientes_df.show(10, truncate=False)
 
-  print("Fazendo a junção dos dataframes")
-  relatorio_top_10_cliente_df = transformer.join_pedidos_clientes(top_10_clientes_df, clientes_df)
-  relatorio_top_10_cliente_df.show(20, truncate=False)
+    print("Fazendo a junção dos dataframes")
+    relatorio_top_10_cliente_df = transformer.join_pedidos_clientes(top_10_clientes_df, clientes_df)
+    relatorio_top_10_cliente_df.show(20, truncate=False)
 
-  print("Escrevendo o resultado em parquet")
-  path_output = config['paths']['output']
-  print(f"Obtido o path de saída: {path_output}")
-  data_handler.write_parquet(df=relatorio_top_10_cliente_df, path=path_output)
+    print("Escrevendo o resultado em parquet")
+    path_output = config['paths']['output']
+    print(f"Obtido o path de saída: {path_output}")
+    data_handler.write_parquet(df=relatorio_top_10_cliente_df, path=path_output)
 
-  spark.stop()
+    spark.stop()
 
 if __name__ == "__main__":
-  main()
+    main()
 
 
 ```
@@ -1348,24 +1348,24 @@ from pipeline.pipeline import Pipeline
 
 def main():
   
-  config = carregar_config()
-  app_name = config['spark']['app_name']
-  print(f"Obtido o app name: {app_name}")
+    config = carregar_config()
+    app_name = config['spark']['app_name']
+    print(f"Obtido o app name: {app_name}")
 
-  spark = SparkSessionManager.get_spark_session(app_name=app_name)
+    spark = SparkSessionManager.get_spark_session(app_name=app_name)
 
-  # Raiz de Composição (Composition Root):
-  # este é o ÚNICO lugar que monta as dependências concretas e as injeta.
-  data_handler = DataHandler(spark)
-  transformer = Transformation()
-  pipeline = Pipeline(data_handler, transformer)
-  pipeline.run(config=config)
+    # Raiz de Composição (Composition Root):
+    # este é o ÚNICO lugar que monta as dependências concretas e as injeta.
+    data_handler = DataHandler(spark)
+    transformer = Transformation()
+    pipeline = Pipeline(data_handler, transformer)
+    pipeline.run(config=config)
 
 
-  spark.stop()
+    spark.stop()
 
 if __name__ == "__main__":
-  main()
+    main()
 
 ```
 
@@ -1416,73 +1416,150 @@ import logging
 logger = logging.getLogger(__name__)
 ```
 
-1. Importe o pacote `Logging` em `src/main.py`:
+1. Substitua completamente o conteúdo de `settings.py`:
 
   ```python
+  # src/config/settings.py
+  import yaml
+  import logging.config
+
+  def carregar_config(path: str = "./data-engineering-pyspark/config/settings.yaml") -> dict:
+      """Carrega o arquivo YAML."""
+      with open(path, 'r') as file:
+          return yaml.safe_load(file)
+
+  def configurar_logging(config_logging: dict):
+      """Aplica a configuração de logging lida do YAML."""
+      logging.config.dictConfig(config_logging)
+      logging.getLogger(__name__).info("Logging configurado com sucesso via YAML.")
+  ```
+
+2. Acrescente o seguinte conteúdo ao arquivo `settings.yaml`:
+  ```yaml
+  # Configuração Padrão de Mercado para Logging
+  logging:
+    version: 1
+    disable_existing_loggers: False
+    formatters:
+      padrao:
+        format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        datefmt: "%Y-%m-%d %H:%M:%S"
+    handlers:
+      console:
+        class: logging.StreamHandler
+        level: INFO
+        formatter: padrao
+        stream: ext://sys.stdout
+    root:
+      level: INFO
+      handlers: [console]
+  ```
+
+3. Substitua o conteúdo completo de `main.py` pelo código abaixo:
+
+  ```python
+  # src/main.py
+  from config.settings import carregar_config, configurar_logging
+  from session.spark_session import SparkSessionManager
+  from io_utils.data_handler import DataHandler
+  from processing.transformations import Transformation
+  from pipeline.pipeline import Pipeline
   import logging
-  ```
 
-2. Crie uma função para configurar o logging:
+  def main():
+      # 1. Carrega configurações do YAML
+      config = carregar_config()
 
-  ```python
-  # Crie a configuração do logging
-  def configurar_logging():
-    """Configura o logging para todo o projeto."""
-    logging.basicConfig(
-        # Nível mínimo de severidade para ser registrado.
-        # DEBUG < INFO < WARNING < ERROR < CRITICAL
-        level=logging.INFO,
+      # 2. Ativa o log instantaneamente
+      configurar_logging(config['logging'])
 
-        # Formato da mensagem de log.
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
+      # 3. Inicia a aplicação
+      logger = logging.getLogger(__name__)
+      logger.info(f"Iniciando job: {config['spark']['app_name']}")
 
-        # Lista de handlers. Aqui, estamos logando para um arquivo e para o console.
-        handlers=[
-            logging.FileHandler("dataeng-pyspark-poo.log"), # Log para arquivo
-            logging.StreamHandler()                         # Log para o console (terminal)
-        ]
-    )
-    logging.info("Logging configurado.")
+      spark = SparkSessionManager.get_spark_session(app_name=config['spark']['app_name'])
 
-  ```
+      # Composition Root
+      data_handler = DataHandler(spark)
+      transformer = Transformation()
+      pipeline = Pipeline(data_handler, transformer)
+      
+      pipeline.run(config=config)
 
-3. Antes de chamar a função `main()`, chame `configurar_logging()`:
+      spark.stop()
+      logger.info("Pipeline finalizado com sucesso.")
 
-  ```python
   if __name__ == "__main__":
-      configurar_logging()
       main()
-
   ```
 
-4. Agora que o *Root Logger* está configurado, crie um `logger` local em `main()`:
+4. Em todas as classes, adicione a configuração do logger no início do arquivo e substitua todos os `print()` por chamadas ao `logging`.<br>
 
-Essa será a primeira linha do método `main()`.
-```python
-logger = logging.getLogger(__name__)
-
-```
-
-5. Em todas as classes, adicione a configuração do logger no início do arquivo e substitua todos os `print()` por chamadas ao `logging`.<br>
-
-  Abaixo está um exemplo na classe `src/pipeline.py`:
+  Por exemplo, a seguir está o código completo da classe Pipeline (`src/pipeline.py`) instancia e utiliza o objeto `logger`:
 
   ```python
   # src/pipeline/pipeline.py
-  import logging
   from io_utils.data_handler import DataHandler
   from processing.transformations import Transformation
+  import logging
 
   logger = logging.getLogger(__name__)
 
   class Pipeline:
-      # ... (o construtor __init__ permanece o mesmo) ...
+      """
+      Encapsula a lógica de execução do pipeline de dados.
+      """
+      def __init__(self, data_handler: DataHandler, transformer: Transformation):
+          self.data_handler = data_handler
+          self.transformer = transformer
 
       def run(self, config):
+          """
+          Executa o pipeline completo: carga, transformação, e salvamento.
+          """
           logger.info("Pipeline iniciado...")
-          # ... (substitua os prints por logging.info) ...
+
+          logger.info("Abrindo o dataframe de clientes")
+          path_clientes = config['paths']['clientes']
+          logger.info(f"Obtido o path de clientes: {path_clientes}")
+          clientes_df = self.data_handler.load_clientes(path = path_clientes)
+          clientes_df.show(5, truncate=False)
+
+          logger.info("Abrindo o dataframe de pedidos")
+          path_pedidos = config['paths']['pedidos']
+          compression_pedidos = config['file_options']['pedidos_csv']['compression']
+          header_pedidos = config['file_options']['pedidos_csv']['header']
+          separator_pedidos = config['file_options']['pedidos_csv']['sep']
+          
+          logger.info(f"""Obtidos os seguintes parâmetros de pedidos:
+          - path: {path_pedidos}
+          - compression: {compression_pedidos}
+          - header: {header_pedidos}
+          - separator: {separator_pedidos}
+          """)
+          
+          pedidos_df = self.data_handler.load_pedidos(path = path_pedidos, compression=compression_pedidos, header=header_pedidos, sep=separator_pedidos)
+          
+          logger.info("Adicionando a coluna valor_total")
+          pedidos_df = self.transformer.add_valor_total_pedidos(pedidos_df)
+          pedidos_df.show(5, truncate=False)
+          
+          logger.info("Calculando o valor total de pedidos por cliente e filtrar os 10 maiores")
+          top_10_clientes_df = self.transformer.get_top_10_clientes(pedidos_df)
+          
+          top_10_clientes_df.show(10, truncate=False)
+          
+          logger.info("Fazendo a junção dos dataframes")
+          relatorio_top_10_cliente_df = self.transformer.join_pedidos_clientes(top_10_clientes_df, clientes_df)
+          relatorio_top_10_cliente_df.show(20, truncate=False)
+          
+          logger.info("Escrevendo o resultado em parquet")
+          path_output = config['paths']['output']
+          logger.info(f"Obtido o path de saída: {path_output}")
+          self.data_handler.write_parquet(df=relatorio_top_10_cliente_df, path=path_output)
+
           logger.info("Pipeline concluído com sucesso!")
+      
   ```
 
 6. Execute novamente e confira o arquivo gerado `dataeng-pyspark-poo.log`:
@@ -1507,14 +1584,16 @@ Ignorar essas possíveis falhas pode levar à interrupção de pipelines, result
 
 O Spark, por padrão, é "permissivo". Se você definir que uma coluna é `Integer` mas chegar um texto "abc", o Spark converte silenciosamente para `null`. Em sistemas financeiros ou críticos, isso é inaceitável. Queremos que o processo falhe imediatamente (`FAILFAST`) se o dado estiver sujo.
 
+> Atenção! Essa opção só é válida para arquivos baseados em **texto** como **CSV** e **JSON**.
+
 Vamos alterar o `src/io_utils/data_handler.py`.
 
-**1. Ajuste o método `load_pedidos`:**
-Adicione a opção `.option("mode", "FAILFAST")`.
+**Exemplo**
+
+Adicionando a opção `.option("mode", "FAILFAST")` ao método `load_pedidos`:**
 
 ```python
     # src/io_utils/data_handler.py
-    # ...
     def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
         """Carrega o dataframe de pedidos com modo FAILFAST."""
         schema = self._get_schema_pedidos()
@@ -1526,32 +1605,49 @@ Adicione a opção `.option("mode", "FAILFAST")`.
 
 ```
 
-### Cenário 2: Arquivos Vazios ou Inexistentes
+### Cenário 2: Falhas estruturais - `AnalysisException`
 
-Às vezes o arquivo existe, mas está vazio (0 bytes ou apenas cabeçalho). Processar um dataframe vazio pode gerar erros em etapas seguintes ou relatórios em branco sem aviso prévio. Além disso, se o arquivo não existir, o Spark lança uma `AnalysisException`.
+#### O que é a `AnalysisException`?
 
-Vamos capturar esse erro e verificar se o dataframe tem dados.
+O PySpark utiliza um modelo de **avaliação preguiçosa (lazy evaluation)**. Quando você escreve um código (como selecionar colunas, fazer filtros ou joins), o Spark não executa a ação imediatamente. Em vez disso, ele cria um "plano lógico" de como essa operação deve ser feita.
 
-**1. Inclua os imports necessários em `src/io_utils/data_handler.py`:**
+Antes de transformar esse plano lógico em um plano físico de execução, o componente central do Spark chamado **Catalyst Optimizer** analisa o seu código para validar se ele faz sentido. A `AnalysisException` é o erro que o Catalyst lança quando **o seu plano lógico é inválido**.
+
+#### Principais causas desse erro
+
+Na prática, a `AnalysisException` é o Spark dizendo: *"Eu entendi o seu código Python, mas a lógica de banco de dados ou a estrutura dos dados está errada"*. Isso ocorre quase sempre por falhas de metadados, tais como:
+
+* **Coluna Inexistente (Column not found):** Você tentou selecionar, filtrar ou agrupar por uma coluna que não existe no DataFrame ou foi digitada com erro ortográfico.
+* **Ambiguidade de Colunas (Ambiguous reference):** Muito comum após um `join` entre duas tabelas que possuem colunas com o mesmo nome. Se você tentar selecionar essa coluna depois do join, o Spark não saberá de qual tabela você está falando.
+* **Incompatibilidade de Tipos (Type mismatch):** Você tentou realizar uma operação matemática em uma coluna de texto (String) ou comparar tipos de dados que não conversam entre si.
+* **Erro de Sintaxe SQL:** Quando você usa `spark.sql("SELECT * FRM tabela")` e comete um erro de digitação na query SQL (como "FRM" em vez de "FROM").
+
+#### Por que importar essa exceção?
+
+Em pipelines de dados (ETL) de produção, os dados podem mudar. Uma coluna pode sumir na origem, ou um tipo de dado pode vir alterado. Se você não tratar esse erro, o pipeline inteiro irá "quebrar" e parar de rodar.
+
+#### Como evitar a AnalysisException
+
+A melhor forma de lidar com esse erro é ter práticas defensivas antes da ação ocorrer:
+
+1. **Verifique a existência da coluna:** Antes de operar, cheque a lista de colunas com `if "coluna" in df.columns:`.
+2. **Resolva ambiguidades no Join:** Use aliases (apelidos) para os DataFrames antes de juntá-los e chame as colunas pelo alias (`df_a["id"]`).
+3. **Conheça seus dados:** Use `df.printSchema()` frequentemente durante o desenvolvimento para garantir que a tipagem e os nomes aninhados estão corretos.
+
+#### Exemplo de `AnalysisException`
+
+1. Inclua os imports necessários em `src/io_utils/data_handler.py`:**
 Precisamos importar a exceção do Spark e o módulo de logging.
 
 ```python
-import logging
-```
+# src/io_utils/data_handler.py
+# outros imports...
+from pyspark.sql.utils import AnalysisException
 
-```python
-from pyspark.sql.utils import AnalysisException # <-- Importante
-```
+# outras instruções...
 
-```python
-logger = logging.getLogger(__name__) # <-- Inicializa o logger
-```
-
-**2. Ajuste o método `load_pedidos` com try/except e verificação de vazio:**
-
-```python
-    # src/io_utils/data_handler.py
-    # ...
+    # outros métodos ...
+    
     def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
         try:
             schema = self._get_schema_pedidos()
@@ -1572,27 +1668,84 @@ logger = logging.getLogger(__name__) # <-- Inicializa o logger
 
 ```
 
-### Cenário 3: Erros da JVM (Java Virtual Machine)
+### Cenário 3: Falhas de JVM - `Py4JJavaError`
 
-Como o PySpark roda em cima da JVM (Java), alguns erros críticos (como falta de memória ou arquivo corrompido fisicamente) chegam como `Py4JJavaError`. Se não tratarmos isso, o log fica ilegível para quem só sabe Python.
+Como o PySpark roda em cima da JVM (Java), alguns erros críticos (como falta de memória ou arquivo corrompido fisicamente) chegam como `Py4JJavaError`. 
 
-**1. Inclua o import do Py4J em `src/io_utils/data_handler.py`:**
+#### O que é a `Py4JJavaError`?
+O `Py4JJavaError` é uma exceção de infraestrutura. Ele vem do pacote py4j.protocol porque o **Py4J** é uma biblioteca externa, independente do Spark, usada apenas como uma "ponte" de comunicação.<br>
+Enquanto a `AnalysisException` acontece no "planejamento" (antes da execução), o `Py4JJavaError` ocorre **durante a execução física** ou na **interação direta com o ambiente Java**.
+
+Quando a JVM tenta executar uma tarefa e sofre um erro grave (um arquivo que não existe, memória que estourou, erro de conexão com a AWS/HDFS), o Java lança uma exceção. Como o Python não entende erros do Java nativamente, o Py4J intercepta esse erro e o joga para o seu script Python na forma de um `Py4JJavaError`.
+
+Basicamente, o `Py4JJavaError` é o mensageiro dizendo: *"Ocorreu um erro no lado do Java, e eu não sei traduzi-lo para um erro nativo do Python, então estou te entregando o erro bruto"*.
+
+#### Principais causas desse erro
+
+Como ele é um "pacote" genérico para erros da JVM, suas causas são muito variadas, mas as mais comuns em engenharia de dados são:
+
+* **Falta de Memória (Out of Memory - OOM):** O *Driver* ou os *Executors* da JVM ficaram sem memória ao processar um volume de dados muito grande (ex: um `collect()` de um DataFrame gigante).
+* **Erro de I/O (Leitura/Escrita):** Você tentou ler um arquivo CSV/Parquet que não existe, ou não tem permissões para gravar no diretório de destino no S3/HDFS.
+* **Incompatibilidade de Tipos em Tempo de Execução:** O Catalyst Optimizer achou que o plano estava certo (evitando a `AnalysisException`), mas na hora de ler o arquivo físico, uma coluna que deveria ser `Integer` continha letras.
+* **Falta de dependências (.jar):** Você tentou conectar a um banco de dados via JDBC ou ler um arquivo do S3, mas esqueceu de passar os arquivos `.jar` necessários na configuração do Spark.
+
+#### Exemplo de `Py4JJavaError`
 
 ```python
 # src/io_utils/data_handler.py
-import logging
-from py4j.protocol import Py4JJavaError # <-- Importante para erros da JVM
-from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.utils import AnalysisException
+# outros imports...
+from py4j.protocol import Py4JJavaError
 # ...
+
+
+    # ... dentro do load_pedidos ...
+    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
+        try:
+            schema = self._get_schema_pedidos()
+            df = self.spark.read \
+                .option("compression", compression) \
+                .option("mode", "FAILFAST") \
+                .csv(path, header=header, schema=schema, sep=sep)
+            
+            # Verificação de Dataframe Vazio
+            if df.isEmpty():
+                logger.warning(f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros.")
+            
+            return df        
+        except Py4JJavaError as e:
+            logger.critical(f"Erro Crítico na JVM (possível arquivo corrompido ou erro de memória): {e}")
+            raise e
+
+```
+### Blindando `DataHandler`
+1. **`data_handler.py`**: Acrescente o bloco a seguir logo após o último import:
+```python
+# AnalysisException para o caso de arquivos corrompidos ou problemas de leitura
+from pyspark.sql.utils import AnalysisException
+# Py4JJavaError para capturar erros da JVM
+from py4j.protocol import Py4JJavaError
+import logging
+
+logger = logging.getLogger(__name__)
 
 ```
 
-**2. Adicione o novo bloco `except` ao método `load_pedidos`:**
-
+2. **`data_handler.py`**: Substitua completamente o método `load_pedidos` pelo bloco abaixo:
 ```python
-    # src/io_utils/data_handler.py
-    # ... dentro do load_pedidos ...
+    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
+        try:
+            schema = self._get_schema_pedidos()
+            df = self.spark.read \
+                .option("compression", compression) \
+                .option("mode", "FAILFAST") \
+                .csv(path, header=header, schema=schema, sep=sep)
+            
+            # Verificação de Dataframe Vazio
+            if df.isEmpty():
+                logger.warning(f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros.")
+            
+            return df
+
         except AnalysisException as e:
             logger.error(f"Erro de IO/Spark: {e}")
             raise e
@@ -1603,38 +1756,46 @@ from pyspark.sql.utils import AnalysisException
 
 ```
 
-### Cenário 4: Blindando `main.py`
+### Blindando `main.py`
 
 Agora que nosso `DataHandler` sabe reportar quando algo dá errado, precisamos garantir que o nosso `main.py` saiba lidar com isso.
 
-**1. Atualize o `src/main.py` para capturar falhas no pipeline:**
+1. Atualize o `src/main.py` para capturar falhas no pipeline:
 
 ```python
 # src/main.py
-# ... imports ...
+from config.settings import carregar_config, configurar_logging
+from session.spark_session import SparkSessionManager
+from io_utils.data_handler import DataHandler
+from processing.transformations import Transformation
+from pipeline.pipeline import Pipeline
+import logging
+import sys
 
 def main():
-    # ... carregamento de config ...
-    
-    spark = None # Inicializa como None para segurança no finally
+    config = carregar_config()
+    configurar_logging(config['logging'])
+    logger = logging.getLogger(__name__)
+    logger.info(f"Iniciando job: {config['spark']['app_name']}")
+
+    spark = SparkSessionManager.get_spark_session(app_name=config['spark']['app_name'])
+
     try:
-        spark = SparkSessionManager.get_spark_session(app_name=app_name)
         data_handler = DataHandler(spark)
         transformer = Transformation()
         pipeline = Pipeline(data_handler, transformer)
+        
         pipeline.run(config=config)
 
+        logger.info("Pipeline finalizado com sucesso.")
     except Exception as e:
-        logging.error(f"FALHA CRÍTICA NO PIPELINE: {e}")
-        # Aqui poderíamos adicionar envio de notificação (Slack, Email, PagerDuty)
-        
+        logger.error(f"Erro durante a execução do job: {e}", exc_info=True)
+        sys.exit(1)
     finally:
-        if spark:
-            spark.stop()
-            logging.info("Sessão Spark finalizada.")
-
+        spark.stop()
+        logger.info("Spark session encerrada.")
+        
 if __name__ == "__main__":
-    configurar_logging()
     main()
 
 ```
@@ -1661,7 +1822,7 @@ pedidos: "./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedido
 
 2. **Teste de Arquivo Corrompido**
 ```sh
-echo "meu arquivo" > /data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/corrompido.csv.gz
+echo "meu arquivo" > ./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/corrompido.csv.gz
 
 ```
 
@@ -1675,14 +1836,50 @@ Repare onde o erro ocorre. Após as nossas alterações ele **não** acontece em
 
 Após o teste remova o arquivo corrompido:
 ```sh
-rm /data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/corrompido.csv.gz
+rm ./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/corrompido.csv.gz
 
 ```
 
 
+#### Respondendo à pergunta do teste 2
+
+Por que o erro do arquivo corrompido **não** apareceu no `DataHandler`, mesmo com o `try/except` lá dentro?
+
+Por causa da **avaliação preguiçosa**. O `spark.read.csv(...)` não lê nada: ele apenas registra o plano de leitura. O arquivo só é fisicamente aberto quando uma **ação** é disparada — e as ações do nosso pipeline (`show`, `write`, `count`) acontecem depois, dentro de `Transformation` e `Pipeline`. Quando a JVM finalmente tropeça no arquivo corrompido, o `try` do `load_pedidos` já foi encerrado há muito tempo, e quem captura o erro é o `except Exception` do `main.py`.
+
+> E o `df.isEmpty()`? Ele *é* uma ação, mas o Spark o resolve com um `take(1)`: lê o mínimo necessário para achar uma linha e para. Se o arquivo corrompido não for o primeiro da lista, ele nem chega a ser tocado.
+
+Lição prática: **`try/except` só protege o que for executado dentro dele**. Em Spark, isso raramente é a leitura — é a ação.
+
 #### Conclusão
 
-Com essas mudanças, se um arquivo não for encontrado, a aplicação não vai mais quebrar com um stack trace gigante. Em vez disso, ela registrará uma mensagem de erro clara e finalizará a sessão Spark de forma segura.
+Saímos de um pipeline que falhava de forma silenciosa ou ilegível e chegamos a um que falha de forma **previsível, rastreável e limpa**. Três camadas de defesa foram adicionadas:
+
+| Camada | Onde | O que garante |
+|---|---|---|
+| `mode: FAILFAST` | `data_handler.py` | Dado sujo **não vira `null` silenciosamente** — o processo para na hora. |
+| `except AnalysisException` / `except Py4JJavaError` | `data_handler.py` | O erro ganha **contexto de negócio** ("erro ao ler pedidos") e o nível de log correto (`error` vs. `critical`). |
+| `try/except/finally` | `main.py` | Última linha de defesa: nada escapa sem registro, o `sys.exit(1)` avisa o orquestrador de que o job falhou, e o `finally` garante o `spark.stop()` mesmo em caso de falha. |
+
+Repare no padrão que usamos em todos os `except` do `DataHandler`: **logar e relançar** (`raise e`).
+
+```python
+except AnalysisException as e:
+    logger.error(f"Erro de IO/Spark: {e}")
+    raise e  # <- não engolir!
+
+```
+
+Isso não é redundância. Tratar um erro **não** significa escondê-lo: significa registrá-lo com contexto e deixá-lo subir para quem tem autoridade para decidir o que fazer. Um `except` que apenas loga e segue em frente é pior do que nenhum `except` — ele transforma uma falha ruidosa em dado corrompido silencioso, que só será descoberto semanas depois pelo time de negócio.
+
+##### O que levar deste passo
+
+- Falhe cedo (`FAILFAST`) em vez de propagar `null` silencioso.
+- Capture exceções **específicas** (`AnalysisException`, `Py4JJavaError`) antes da genérica — cada uma diz algo diferente sobre *onde* o problema está: planejamento ou execução.
+- Logue **e relance**. `except` não é sinônimo de "ignorar".
+- Um job que falhou precisa **terminar com código de saída diferente de zero**, senão o orquestrador acha que deu tudo certo.
+- Use `finally` para liberar recursos (a sessão Spark) aconteça o que acontecer.
+- Lembre que, em Spark, o erro aparece na **ação**, não na declaração da leitura.
 
 ---
 
@@ -2668,6 +2865,7 @@ Essa rede de segurança permite refatorar e evoluir o projeto com confiança —
 ## Parabéns! 
 Você completou a jornada de transformar um simples script em uma aplicação Python robusta, de alta qualidade e distribuível.
 
+---
 
 ## Desafio
 
@@ -2725,7 +2923,7 @@ Seu projeto deve contemplar os seguintes requisitos:
     * Exemplo: `logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')`
   - UTILIZAR o logging para registro das etapas do pipeline.
 10. **Tratamento de Erros**
-  - UTILIZAR a estrutura `try/catch` para tratamento de erros na classe de lógica de negócios.
+  - UTILIZAR a estrutura `try/except` para tratamento de erros na classe de lógica de negócios.
   - UTILIZAR logging para registro do erro capturado.
 11. **Empacotamento da aplicação**
   - CRIAR o arquivo `pyproject.toml`

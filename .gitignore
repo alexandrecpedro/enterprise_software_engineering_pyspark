@@ -1100,3 +1100,6 @@ FodyWeavers.xsd
 
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
+
+src/logs/*
+!src/logs/.gitkeep
