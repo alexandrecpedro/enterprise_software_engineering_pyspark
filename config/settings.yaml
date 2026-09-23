@@ -28,12 +28,21 @@ logging:
       level: INFO
       formatter: padrao
       stream: ext://sys.stdout
-    arquivo:
+    
+    arquivo_info:
+      class: logging.FileHandler
+      level: INFO
+      formatter: padrao
+      filename: "./data-engineering-pyspark/logs/pipeline_info.log"
+    
+    arquivo_error:
       class: logging.FileHandler
       level: WARN
       formatter: padrao
-      filename: "./data-engineering-pyspark/logs/pipeline.log"
+      filename: "./data-engineering-pyspark/logs/pipeline_errors.log"
+
   root:
+    # O nível do root deve ser o menor (mais detalhado) dos handlers para não filtrar mensagens precocemente
     level: INFO
-    handlers: [console, arquivo]
+    handlers: [console, arquivo_info, arquivo_error]
     
