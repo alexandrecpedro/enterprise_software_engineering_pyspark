@@ -14,6 +14,9 @@ def main():
     # 2. Ativa o log instantaneamente
     configurar_logging(config['logging'])
 
+    # Extrai o app_name do dicionário de configuração
+    app_name = config['spark']['app_name']
+
     # 3. Inicia a aplicação
     logger = logging.getLogger(__name__)
     logger.info(f"Iniciando job: {config['spark']['app_name']}")

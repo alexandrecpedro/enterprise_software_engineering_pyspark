@@ -246,14 +246,14 @@ Vamos simular um problema comum. Imagine que temos um arquivo CSV simples em `da
 
 1. Baixe o arquivo `/tmp/data.csv`:
   ```bash
-  wget -P /tmp https://raw.githubusercontent.com/infobarbosa/pyspark-poo/main/assets/data/data.csv
+  curl -L --output-dir /tmp -O https://raw.githubusercontent.com/infobarbosa/pyspark-poo/main/assets/data/data.csv
 
   ```
 
 2. Baixe o script `infer-schema.py`:
 
   ```bash
-  wget -P /tmp https://raw.githubusercontent.com/infobarbosa/pyspark-poo/main/assets/scripts/infer-schema.py
+  curl -L --output-dir /tmp -O https://raw.githubusercontent.com/infobarbosa/pyspark-poo/main/assets/scripts/infer-schema.py
 
   ```
 
@@ -294,7 +294,7 @@ percentual_bonus = 0.5
 # O analista João Silva, cujo código era "0101", agora tem o código 101.
 # Ele receberá indevidamente o bônus do diretor!
 print(f"\nCalculando bônus de {percentual_bonus:.0%} para o código '{cod_bonus_diretor}'...")
-df_bonus = df_inferido.withColumn(
+df_bonus = df.withColumn(
     "valor_bonus",
     F.when(F.col("cod_bonus") == cod_bonus_diretor, F.col("salario") * percentual_bonus).otherwise(0)
 )
@@ -318,7 +318,7 @@ spark-submit /tmp/infer-schema.py
 1. Baixe o script `schema-definido.py`:
 
   ```bash
-  wget -P /tmp https://raw.githubusercontent.com/infobarbosa/pyspark-poo/main/assets/scripts/schema-definido.py
+  curl -L --output-dir /tmp -O https://raw.githubusercontent.com/infobarbosa/pyspark-poo/main/assets/scripts/schema-definido.py
 
   ```
 
@@ -1404,6 +1404,22 @@ A sua aplicação (o ponto de entrada, como main.py ou app.py) é responsável p
 Os seus módulos e pacotes (as "bibliotecas" do seu projeto) nunca devem configurar o logging. Eles devem apenas pedir um logger e usá-lo para enviar mensagens.<br>
 Isso evita que um módulo sobreponha a configuração de outro, garantindo um comportamento uniforme e previsível em todo o projeto.
 
+#### Os Níveis de Log (Severity Levels)
+
+O sistema de logging do Python classifica as mensagens em 5 níveis padrão de severidade. Em engenharia de dados, entender quando usar cada um é essencial para não transformar seus logs em um "mar de ruído" ou, pior, em um "silêncio perigoso":
+
+| Nível | Valor | Quando Usar em Pipelines de Dados | Exemplo no Nosso Projeto |
+| :--- | :---: | :--- | :--- |
+| **`DEBUG`** | 10 | Diagnóstico minucioso para desenvolvimento. Inspecionar DataFrames intermediários, planos de execução física ou variáveis de loop. *(Desativado em produção)* | `logger.debug(f"Plano Catalyst: {df._jdf.queryExecution()}")` |
+| **`INFO`** | 20 | Marcos normais e esperados do fluxo. Confirmação de início/fim de jobs, quantidade de linhas lidas, caminhos de saída salvos. | `logger.info("Pipeline finalizado com sucesso.")` |
+| **`WARNING`** | 30 | Alerta sobre algo inesperado, mas que **não impediu** a continuidade do pipeline. | `logger.warning("Arquivo lido está vazio.")` |
+| **`ERROR`** | 40 | Uma falha impediu a conclusão de uma operação importante, mas o sistema como um todo pode tentar continuar ou tratar o erro. | `logger.error("Falha ao salvar partição no Parquet.")` |
+| **`CRITICAL`** | 50 | Falha catastrófica que inviabiliza todo o ambiente. O processo precisa ser abortado imediatamente. | `logger.critical("Sem memória no cluster (OOM) ou storage inacessível.")` |
+
+> [!TIP]
+> **Como o nível mínimo funciona?**  
+> Se configuramos `level: INFO` no `settings.yaml`, o logger exibirá mensagens `INFO`, `WARNING`, `ERROR` e `CRITICAL`. Todas as mensagens `DEBUG` serão silenciosamente ignoradas pelo Spark/Python, economizando espaço em disco e I/O.
+
 #### A Hierarquia de Loggers
 O módulo `logging` do Python organiza os loggers em uma hierarquia baseada em nomes separados por pontos. Por exemplo, um logger chamado pacote1.modulo1 é filho do logger pacote1, que por sua vez é filho do logger raiz (root).
 
@@ -1450,9 +1466,14 @@ logger = logging.getLogger(__name__)
         level: INFO
         formatter: padrao
         stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        level: INFO
+        formatter: padrao
+        filename: "dataeng-pyspark-poo.log"
     root:
       level: INFO
-      handlers: [console]
+      handlers: [console, file]
   ```
 
 3. Substitua o conteúdo completo de `main.py` pelo código abaixo:
@@ -1577,83 +1598,285 @@ tail -100 dataeng-pyspark-poo.log
 ---
 
 ## Passo 9: Tratamento de Erros
-Ao trabalhar com processamento de dados em grande escala, é inevitável que nos deparemos com imprevistos, como dados ausentes ou malformados, falhas de conexão com fontes de dados ou erros de lógica em nossas transformações.
-Ignorar essas possíveis falhas pode levar à interrupção de pipelines, resultados incorretos e perda de tempo valioso.
 
-### Cenário 1: Integridade dos Dados (Read Modes)
+Ao trabalhar com processamento de dados em grande escala, é inevitável que nos deparemos com imprevistos, como dados ausentes ou malformados, falhas de conexão com fontes de dados ou erros de lógica em nossas transformações. Ignorar essas possíveis falhas pode levar à interrupção de pipelines, corrupção silenciosa de dados e diagnósticos demorados em produção.
 
-O Spark, por padrão, é "permissivo". Se você definir que uma coluna é `Integer` mas chegar um texto "abc", o Spark converte silenciosamente para `null`. Em sistemas financeiros ou críticos, isso é inaceitável. Queremos que o processo falhe imediatamente (`FAILFAST`) se o dado estiver sujo.
+---
 
-> Atenção! Essa opção só é válida para arquivos baseados em **texto** como **CSV** e **JSON**.
+### A Evolução do Tratamento de Erros no PySpark: O Pacote `pyspark.errors`
 
-Vamos alterar o `src/io_utils/data_handler.py`.
+Compreender onde e como os erros são disparados no PySpark depende de entender a evolução da própria biblioteca:
 
-**Exemplo**
+#### Como era antes do PySpark 4 (versões legadas e Spark 2.x / 3.x inicial)
+* **Exceções dispersas:** Exceções do Spark SQL eram importadas de módulos secundários, principalmente `pyspark.sql.utils` (por exemplo, `from pyspark.sql.utils import AnalysisException`).
+* **Dependência da ponte Py4J (`Py4JJavaError`):** Como o PySpark é uma camada Python sobre a JVM, boa parte dos erros ocorridos na execução física não eram traduzidos. Eles chegavam ao Python empacotados como `py4j.protocol.Py4JJavaError`, exibindo *stack traces* Java quilométricos e forçando o desenvolvedor a capturar erros genéricos de infraestrutura em vez de exceções semânticas de negócio.
+* **Diagnóstico frágil:** Não existia uma padronização formal de códigos de erro; identificar a causa raiz muitas vezes exigia fazer *parsing* de strings na mensagem de erro do Java.
 
-Adicionando a opção `.option("mode", "FAILFAST")` ao método `load_pedidos`:**
+#### Como é agora (PySpark 4 e consolidação do `pyspark.errors`)
+A partir do PySpark 3.4 e consolidado de forma definitiva no **PySpark 4**, o Apache Spark introduziu uma hierarquia unificada e idiomática de erros no pacote nativo [**`pyspark.errors`**](https://spark.apache.org/docs/latest/api/python/reference/pyspark.errors.html):
+
+* **Módulo Oficial Centralizado:** Todas as exceções do PySpark (Core, SQL, Streaming e Connect) estão centralizadas em `pyspark.errors`. Agora importamos diretamente:
+  ```python
+  from pyspark.errors import PySparkException, AnalysisException, ParseException
+  ```
+* **Hierarquia Unificada (`PySparkException`):** Todas as exceções de usuário herdam da classe base `PySparkException`, permitindo capturar tanto falhas específicas quanto qualquer erro originado no ecossistema Spark de forma limpa.
+* **Error Classes e SQLSTATE:** Os erros agora contam com classes de erro padronizadas e códigos SQLSTATE (padrão ANSI SQL). Métodos como `e.getErrorClass()`, `e.getSqlState()` e `e.getMessageParameters()` permitem criar regras de monitoramento, métricas e retentativas programáticas sem depender de expressões regulares na mensagem de erro.
+* **Menos atrito com a JVM:** Grande parte dos erros que antes estouravam como `Py4JJavaError` agora são interceptados e mapeados para subclasses nativas de `PySparkException`, tornando o código muito mais legível e manutenível.
+
+---
+
+### Estrutura Básica de Tratamento de Erros (`try / except`)
+
+Antes de vermos os cenários práticos no PySpark, vale recapitular como o Python gerencia exceções através dos blocos `try`, `except`, `else` e `finally`, e quais são as boas práticas recomendadas para pipelines de dados:
 
 ```python
-    # src/io_utils/data_handler.py
-    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
-        """Carrega o dataframe de pedidos com modo FAILFAST."""
-        schema = self._get_schema_pedidos()
-        return self.spark.read \
-            .option("compression", compression) \
-            .option("mode", "FAILFAST") \
-            .csv(path, header=header, schema=schema, sep=sep)
-    # ...
+try:
+    # 1. Bloco protegido: onde ocorrem operações com risco de falha
+    logger.info("Iniciando leitura e processamento...")
+    df = spark.read.csv("caminho/para/dados.csv", header=True)
+    df.show(5)
 
+except PySparkException as e:
+    # 2. Captura específica: trata ou registra erros nativos do PySpark
+    logger.error(f"Falha de execução no PySpark: {e}")
+    raise  # Relança o erro para que o orquestrador (ex: Airflow) detecte a falha
+
+except Exception as e:
+    # 3. Captura genérica: última linha de defesa para erros inesperados
+    logger.exception("Erro inesperado no pipeline.")
+    raise
+
+else:
+    # 4. Executado APENAS se o bloco 'try' foi concluído sem lançar nenhuma exceção
+    logger.info("Etapa concluída com sucesso.")
+
+finally:
+    # 5. Executado SEMPRE, ocorrendo erro ou não
+    # Ideal para encerramento de conexões, limpeza de temporários ou auditoria
+    logger.info("Finalizando rotina e liberando recursos.")
 ```
 
-### Cenário 2: Falhas estruturais - `AnalysisException`
+#### Boas Práticas em Pipelines de Dados:
+1. **Nunca "engula" erros em silêncio:** Evite `except: pass`. Silenciar exceções mascara problemas graves, gera perda de integridade nos dados e dificulta a auditoria em produção.
+2. **Ordene do mais específico ao mais genérico:** Capture primeiro as exceções especializadas do PySpark (ex: `AnalysisException`, `ParseException`), depois a classe base do framework (`PySparkException`) e, por último, a classe genérica do Python (`Exception`).
+3. **Registre com `logger.exception` ou `logger.error` (e saiba a diferença):** Não use `print()`. Dentro de blocos `except`, escolha conscientemente se você quer ou não anexar o stack trace completo do erro (veja a explicação aprofundada logo abaixo).
+4. **Relance (`raise`) quando necessário:** Se a integridade dos dados for violada ou uma etapa indispensável quebrar, pare o fluxo imediatamente para não propagar dados corrompidos.
+
+#### 💡 `logger.error` vs `logger.exception`: Qual é a Melhor Prática?
+
+Uma dúvida muito frequente em engenharia de software e de dados é: **quando usar `logger.error` e quando usar `logger.exception`?**
+
+Ambos registram a mensagem com o nível de severidade **ERROR (40)**, mas o comportamento de diagnóstico é bem diferente:
+
+* **`logger.exception("Mensagem")`**:
+  * **O que faz:** Registra a mensagem no nível `ERROR` e **anexa automaticamente o *traceback* (stack trace)** completo da exceção ativa.
+  * **Equivalência técnica:** Chamar `logger.error("Mensagem", exc_info=True)`.
+  * **Regra de Linters modernos (Ruff / Flake8):** As regras [G201 / LOG007](https://docs.astral.sh/ruff/rules/error-with-exc-info/) consideram `logger.error(..., exc_info=True)` um anti-pattern (*code smell*) redundante e recomendam explicitamente o uso de `logger.exception(...)`.
+  * **Quando usar:** 
+    1. No ponto de entrada da aplicação (como no `main.py`), onde a exceção é capturada e encerra o job (`sys.exit(1)`). Sem o `logger.exception`, o histórico detalhado da falha seria perdido.
+    2. Em falhas técnicas graves, erros inesperados ou bugs de código em que os engenheiros que receberem o alerta (PagerDuty, CloudWatch, Datadog) precisarão ver exatamente em qual linha e módulo o erro estourou.
+  * **Atenção:** Só deve ser chamado **dentro de um bloco `except`**. Se chamado fora dele, o Python registrará `NoneType: None` no traceback.
+
+* **`logger.error("Mensagem")`**:
+  * **O que faz:** Registra uma mensagem no nível `ERROR` em **uma única linha de texto limpa**, sem stack trace.
+  * **Quando usar:**
+    1. Erros conhecidos de negócio ou validações funcionais onde você quer sinalizar uma falha, mas onde o stack trace do Python não agrega valor e apenas poluiria os arquivos de log (ex: *"Arquivo de clientes não encontrado no bucket. Abortando etapa."*).
+    2. Em camadas internas (como faremos no `data_handler.py`), quando você apenas registra um log contextual antes de relançar a exceção (`raise LoadPedidosException(...) from e`). Nesse caso, o stack trace será preservado pela própria exceção chained e registrado na borda da aplicação.
+    3. Fora de blocos `except`, para sinalizar qualquer condição de erro lógica.
+
+| Aspecto | `logger.exception(...)` | `logger.error(...)` |
+| :--- | :--- | :--- |
+| **Nível de Severidade** | `ERROR` (40) | `ERROR` (40) |
+| **Gera Traceback (Stack Trace)?** | **Sim**, automaticamente (`exc_info=True`) | **Não** por padrão (apenas o texto) |
+| **Onde pode ser chamado?** | **Apenas dentro de blocos `except`** | Em qualquer lugar do código |
+| **Caso de Uso Típico** | Borda da aplicação (`main.py`), falhas técnicas e exceções inesperadas | Validações de negócio, camadas intermediárias com `raise ... from` ou logs de erro simples |
+
+> [!TIP]
+> **Evite mensagens redundantes com `logger.exception`!**  
+> Como o `logger.exception` já anexa o traceback completo (e a última linha do traceback sempre contém a mensagem da exceção original), evite concatenar `{e}` na string:
+> ```python
+> # ❌ Redundante (a mensagem de erro aparecerá duas vezes no log):
+> logger.exception(f"Erro capturado no pipeline: {e}")
+>
+> # ✅ Idiomático e objetivo (o detalhe técnico já estará no traceback):
+> logger.exception("Falha técnica durante a execução do pipeline de pedidos.")
+> ```
+
+---
+
+### Cenário 1: A Exceção Base do Ecossistema - `PySparkException`
+
+#### O que é a `PySparkException`?
+
+A `PySparkException` é a classe base de todas as exceções nativas do PySpark, disponível diretamente no pacote [`pyspark.errors`](https://spark.apache.org/docs/latest/api/python/reference/pyspark.errors.html). 
+
+Antes de sua formalização, capturar erros do Spark no Python era uma tarefa ingrata: ou capturava-se a genérica `Exception` do Python (perdendo o contexto do framework), ou lidava-se com a ruidosa `Py4JJavaError`. Com a `PySparkException`, você ganha uma **rede de segurança padronizada e idiomática** para qualquer falha interna originada no ecossistema Spark (seja no Core, SQL, Streaming ou Connect).
+
+#### Identificação Estruturada de Erros
+
+A maior vantagem da hierarquia moderna é eliminar o *parsing* manual de strings de erro. Toda exceção derivada de `PySparkException` fornece métodos nativos para diagnóstico:
+
+* **`e.getErrorClass()`**: Retorna a classe textual padronizada do erro (ex: `"PATH_NOT_FOUND"`, `"COLUMN_NOT_FOUND"`, `"CANNOT_PARSE_INTERVAL"`). Ideal para condicionais e métricas.
+* **`e.getSqlState()`**: Retorna o código padrão ANSI SQL associado (ex: `"42000"` para erros de sintaxe ou semântica).
+* **`e.getMessageParameters()`**: Retorna um dicionário com os valores reais que causaram a falha (ex: nome da tabela ou caminho que não foi encontrado).
+
+#### Exemplo de `PySparkException`
+
+Vamos fazer alguns ajustes em `data_handler.py` para capturar exceções PySpark.
+
+1. Importações
+```python
+from pyspark.errors import PySparkException
+import logging
+```
+
+2. Ajuste do logger
+```python
+logger = logging.getLogger(__name__)
+```
+
+3. Aplicação no método `load_pedidos`
+```python
+
+    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
+        try:
+            schema = self._get_schema_pedidos()
+            df = self.spark.read \
+                .option("compression", compression) \
+                .csv(path, header=header, schema=schema, sep=sep)
+            
+            if df.isEmpty():
+                logger.warning(f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros.")
+            
+            return df
+
+        except PySparkException as e:
+            logger.error(f"Erro no PySpark [Classe: {e.getErrorClass()} | SQLSTATE: {e.getSqlState()}]: {e}")
+            raise e
+```
+
+---
+
+### Cenário 2: Falhas Estruturais e Metadados - `AnalysisException`
 
 #### O que é a `AnalysisException`?
 
-O PySpark utiliza um modelo de **avaliação preguiçosa (lazy evaluation)**. Quando você escreve um código (como selecionar colunas, fazer filtros ou joins), o Spark não executa a ação imediatamente. Em vez disso, ele cria um "plano lógico" de como essa operação deve ser feita.
+A `AnalysisException` é uma **subclasse especializada de `PySparkException`**.
 
-Antes de transformar esse plano lógico em um plano físico de execução, o componente central do Spark chamado **Catalyst Optimizer** analisa o seu código para validar se ele faz sentido. A `AnalysisException` é o erro que o Catalyst lança quando **o seu plano lógico é inválido**.
+O PySpark utiliza um modelo de **avaliação preguiçosa (lazy evaluation)**. Quando você escreve uma operação (selecionar colunas, fazer filtros ou joins), o Spark não executa imediatamente — ele constrói um "plano lógico".
+
+Antes de transformar esse plano lógico em execução física nos nós do cluster, o componente central do Spark chamado **Catalyst Optimizer** analisa o seu código para validar se ele faz sentido com relação aos metadados. A `AnalysisException` é o erro que o Catalyst lança quando **o seu plano lógico é inválido**.
 
 #### Principais causas desse erro
 
-Na prática, a `AnalysisException` é o Spark dizendo: *"Eu entendi o seu código Python, mas a lógica de banco de dados ou a estrutura dos dados está errada"*. Isso ocorre quase sempre por falhas de metadados, tais como:
+Na prática, a `AnalysisException` é o Spark dizendo: *"Eu entendi o seu código Python, mas a lógica de banco de dados ou a estrutura dos dados está errada"*. Exemplos frequentes em pipelines:
 
-* **Coluna Inexistente (Column not found):** Você tentou selecionar, filtrar ou agrupar por uma coluna que não existe no DataFrame ou foi digitada com erro ortográfico.
-* **Ambiguidade de Colunas (Ambiguous reference):** Muito comum após um `join` entre duas tabelas que possuem colunas com o mesmo nome. Se você tentar selecionar essa coluna depois do join, o Spark não saberá de qual tabela você está falando.
-* **Incompatibilidade de Tipos (Type mismatch):** Você tentou realizar uma operação matemática em uma coluna de texto (String) ou comparar tipos de dados que não conversam entre si.
-* **Erro de Sintaxe SQL:** Quando você usa `spark.sql("SELECT * FRM tabela")` e comete um erro de digitação na query SQL (como "FRM" em vez de "FROM").
-
-#### Por que importar essa exceção?
-
-Em pipelines de dados (ETL) de produção, os dados podem mudar. Uma coluna pode sumir na origem, ou um tipo de dado pode vir alterado. Se você não tratar esse erro, o pipeline inteiro irá "quebrar" e parar de rodar.
+* **Coluna Inexistente (UNRESOLVED_COLUMN):** Você tentou selecionar, filtrar ou agrupar por uma coluna que não existe no DataFrame ou foi digitada com erro de digitação.
+* **Ambiguidade de Colunas (AMBIGUOUS_REFERENCE):** Muito comum após um `join` entre duas tabelas que possuem colunas com o mesmo nome sem aliases.
+* **Incompatibilidade de Tipos (DATATYPE_MISMATCH):** Você tentou realizar uma operação matemática em uma coluna de texto (String) ou comparar tipos de dados incompatíveis.
+* **Caminho Inexistente (`PATH_NOT_FOUND`):** Você tentou ler um arquivo ou pasta que não existe na origem.
+* **Erro de Sintaxe SQL:** Quando você usa `spark.sql("SELECT * FRM tabela")` e comete um erro de sintaxe na query.
 
 #### Como evitar a AnalysisException
 
-A melhor forma de lidar com esse erro é ter práticas defensivas antes da ação ocorrer:
+A melhor forma de lidar com esse erro é adotar práticas defensivas:
 
 1. **Verifique a existência da coluna:** Antes de operar, cheque a lista de colunas com `if "coluna" in df.columns:`.
 2. **Resolva ambiguidades no Join:** Use aliases (apelidos) para os DataFrames antes de juntá-los e chame as colunas pelo alias (`df_a["id"]`).
-3. **Conheça seus dados:** Use `df.printSchema()` frequentemente durante o desenvolvimento para garantir que a tipagem e os nomes aninhados estão corretos.
+3. **Conheça seus dados:** Use `df.printSchema()` frequentemente durante o desenvolvimento para garantir que a tipagem e os nomes estão corretos.
 
 #### Exemplo de `AnalysisException`
 
-1. Inclua os imports necessários em `src/io_utils/data_handler.py`:**
-Precisamos importar a exceção do Spark e o módulo de logging.
+Como a `AnalysisException` é mais específica que a `PySparkException`, nós a capturamos **primeiro**:
 
+1. Importe `AnalysisException`
 ```python
-# src/io_utils/data_handler.py
-# outros imports...
-from pyspark.sql.utils import AnalysisException
+from pyspark.errors import AnalysisException, PySparkException
+```
 
-# outras instruções...
-
-    # outros métodos ...
-    
+2. Aplique o tratamento de erro:
+```python
     def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
         try:
             schema = self._get_schema_pedidos()
             df = self.spark.read \
                 .option("compression", compression) \
-                .option("mode", "FAILFAST") \
+                .csv(path, header=header, schema=schema, sep=sep)
+            
+            if df.isEmpty():
+                logger.warning(f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros.")
+            
+            return df
+
+        except AnalysisException as e:
+            logger.error(f"Erro de análise/metadados no Spark [Classe: {e.getErrorClass()}]: {e}")
+            raise e
+        except PySparkException as e:
+            logger.error(f"Erro no PySpark [Classe: {e.getErrorClass()} | SQLSTATE: {e.getSqlState()}]: {e}")
+            raise e
+```
+
+---
+
+> [!NOTE]
+> ### 💡 Por que não capturamos `Py4JJavaError`? (Legado vs. Spark Connect)
+> 
+> Em tutoriais mais antigos ou discussões no StackOverflow, você verá com frequência códigos fazendo `from py4j.protocol import Py4JJavaError`. No PySpark moderno (3.4+ e 4.0), **isso se tornou um anti-pattern** por duas razões principais:
+> 
+> 1. **Vazamento de Abstração:** O Py4J é apenas a biblioteca que implementa a ponte de comunicação entre o interpretador Python e o processo Java no modo clássico. Depender diretamente dele acopla o seu código de dados a detalhes internos de infraestrutura.
+> 2. **Incompatibilidade com o Spark Connect:** A nova arquitetura padrão do PySpark (Spark Connect) comunica-se com clusters via **gRPC**, sem utilizar Py4J no lado cliente. Códigos que dependem de `Py4JJavaError` tornam-se frágeis e incompatíveis com ambientes modernos como Databricks Serverless.
+> 
+> A criação do módulo [`pyspark.errors`](https://spark.apache.org/docs/latest/api/python/reference/pyspark.errors.html) veio justamente para resolver esse problema: todas as falhas de execução e da JVM agora são traduzidas para exceções nativas (`PySparkException` e suas especializações).
+
+---
+
+### Blindando `DataHandler` com Exceções Customizadas (POO)
+
+Até aqui, vimos como capturar as exceções técnicas do Spark (`AnalysisException` e `PySparkException`). No entanto, em um projeto orientado a objetos e bem arquitetado, **o chamador (como o `Pipeline` ou o `main.py`) não deve depender de exceções internas do framework**.
+
+Como boa prática de engenharia de software e para evitar acoplamento desnecessário ou *circular imports*, as exceções de uma camada devem residir em um módulo isolado (`exceptions.py`), e não misturadas dentro do arquivo da classe executável (`data_handler.py`).
+
+1. Crie o arquivo `src/io_utils/exceptions.py`:
+
+```bash
+touch ./data-engineering-pyspark/src/io_utils/exceptions.py
+
+```
+
+2. Defina a hierarquia de exceções da camada de I/O em `src/io_utils/exceptions.py`:
+
+```python
+# src/io_utils/exceptions.py
+
+class DataHandlerException(Exception):
+    """Exceção base para qualquer falha na camada de I/O."""
+    pass
+
+class LoadPedidosException(DataHandlerException):
+    """Lançada especificamente ao falhar o carregamento do dataset de pedidos."""
+    pass
+
+```
+
+3. Em `src/io_utils/data_handler.py` importe a exceção do módulo recém-criado :
+
+```python
+from io_utils.exceptions import LoadPedidosException
+
+```
+
+4. Relance os erros capturados do Spark usando **Exception Chaining** (`raise ... from e`, da PEP 3134):
+
+> [!NOTE]
+> No `src/io_utils/data_handler.py`, atualize apenas o método `load_pedidos` com o tratamento de exceções abaixo, mantendo os demais métodos existentes (`load_clientes`, `write_parquet`, etc.) inalterados na classe.
+
+```python
+
+    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
+        try:
+            schema = self._get_schema_pedidos()
+            df = self.spark.read \
+                .option("compression", compression) \
                 .csv(path, header=header, schema=schema, sep=sep)
             
             # Verificação de Dataframe Vazio
@@ -1663,112 +1886,31 @@ from pyspark.sql.utils import AnalysisException
             return df
 
         except AnalysisException as e:
-            logger.error(f"Erro ao ler arquivo: {e}")
-            raise e # Relança o erro para parar o pipeline
+            logger.error(f"Erro de análise/metadados no Spark [Classe: {e.getErrorClass()}]: {e}")
+            # Encapsula o erro técnico na exceção de negócio mantendo o traceback original (from e)
+            raise LoadPedidosException(f"Falha ao carregar pedidos a partir de '{path}'") from e
 
-```
-
-### Cenário 3: Falhas de JVM - `Py4JJavaError`
-
-Como o PySpark roda em cima da JVM (Java), alguns erros críticos (como falta de memória ou arquivo corrompido fisicamente) chegam como `Py4JJavaError`. 
-
-#### O que é a `Py4JJavaError`?
-O `Py4JJavaError` é uma exceção de infraestrutura. Ele vem do pacote py4j.protocol porque o **Py4J** é uma biblioteca externa, independente do Spark, usada apenas como uma "ponte" de comunicação.<br>
-Enquanto a `AnalysisException` acontece no "planejamento" (antes da execução), o `Py4JJavaError` ocorre **durante a execução física** ou na **interação direta com o ambiente Java**.
-
-Quando a JVM tenta executar uma tarefa e sofre um erro grave (um arquivo que não existe, memória que estourou, erro de conexão com a AWS/HDFS), o Java lança uma exceção. Como o Python não entende erros do Java nativamente, o Py4J intercepta esse erro e o joga para o seu script Python na forma de um `Py4JJavaError`.
-
-Basicamente, o `Py4JJavaError` é o mensageiro dizendo: *"Ocorreu um erro no lado do Java, e eu não sei traduzi-lo para um erro nativo do Python, então estou te entregando o erro bruto"*.
-
-#### Principais causas desse erro
-
-Como ele é um "pacote" genérico para erros da JVM, suas causas são muito variadas, mas as mais comuns em engenharia de dados são:
-
-* **Falta de Memória (Out of Memory - OOM):** O *Driver* ou os *Executors* da JVM ficaram sem memória ao processar um volume de dados muito grande (ex: um `collect()` de um DataFrame gigante).
-* **Erro de I/O (Leitura/Escrita):** Você tentou ler um arquivo CSV/Parquet que não existe, ou não tem permissões para gravar no diretório de destino no S3/HDFS.
-* **Incompatibilidade de Tipos em Tempo de Execução:** O Catalyst Optimizer achou que o plano estava certo (evitando a `AnalysisException`), mas na hora de ler o arquivo físico, uma coluna que deveria ser `Integer` continha letras.
-* **Falta de dependências (.jar):** Você tentou conectar a um banco de dados via JDBC ou ler um arquivo do S3, mas esqueceu de passar os arquivos `.jar` necessários na configuração do Spark.
-
-#### Exemplo de `Py4JJavaError`
-
-```python
-# src/io_utils/data_handler.py
-# outros imports...
-from py4j.protocol import Py4JJavaError
-# ...
-
-
-    # ... dentro do load_pedidos ...
-    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
-        try:
-            schema = self._get_schema_pedidos()
-            df = self.spark.read \
-                .option("compression", compression) \
-                .option("mode", "FAILFAST") \
-                .csv(path, header=header, schema=schema, sep=sep)
-            
-            # Verificação de Dataframe Vazio
-            if df.isEmpty():
-                logger.warning(f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros.")
-            
-            return df        
-        except Py4JJavaError as e:
-            logger.critical(f"Erro Crítico na JVM (possível arquivo corrompido ou erro de memória): {e}")
-            raise e
-
-```
-### Blindando `DataHandler`
-1. **`data_handler.py`**: Acrescente o bloco a seguir logo após o último import:
-```python
-# AnalysisException para o caso de arquivos corrompidos ou problemas de leitura
-from pyspark.sql.utils import AnalysisException
-# Py4JJavaError para capturar erros da JVM
-from py4j.protocol import Py4JJavaError
-import logging
-
-logger = logging.getLogger(__name__)
-
-```
-
-2. **`data_handler.py`**: Substitua completamente o método `load_pedidos` pelo bloco abaixo:
-```python
-    def load_pedidos(self, path: str, compression: str, header:bool, sep:str) -> DataFrame:
-        try:
-            schema = self._get_schema_pedidos()
-            df = self.spark.read \
-                .option("compression", compression) \
-                .option("mode", "FAILFAST") \
-                .csv(path, header=header, schema=schema, sep=sep)
-            
-            # Verificação de Dataframe Vazio
-            if df.isEmpty():
-                logger.warning(f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros.")
-            
-            return df
-
-        except AnalysisException as e:
-            logger.error(f"Erro de IO/Spark: {e}")
-            raise e
-        
-        except Py4JJavaError as e:
-            logger.critical(f"Erro Crítico na JVM (possível arquivo corrompido ou erro de memória): {e}")
-            raise e
+        except PySparkException as e:
+            logger.error(f"Erro de processamento no PySpark [Classe: {e.getErrorClass()}]: {e}")
+            raise LoadPedidosException(f"Erro no motor Spark ao carregar pedidos em '{path}'") from e
 
 ```
 
 ### Blindando `main.py`
 
-Agora que nosso `DataHandler` sabe reportar quando algo dá errado, precisamos garantir que o nosso `main.py` saiba lidar com isso.
+Agora que nosso pacote `io_utils` possui seu próprio módulo de exceções, o `main.py` pode tratar falhas em camadas sem acoplar-se aos detalhes internos da engine:
 
-1. Atualize o `src/main.py` para capturar falhas no pipeline:
+1. Atualize o `src/main.py` para capturar as falhas do pipeline:
 
 ```python
 # src/main.py
 from config.settings import carregar_config, configurar_logging
 from session.spark_session import SparkSessionManager
 from io_utils.data_handler import DataHandler
+from io_utils.exceptions import DataHandlerException, LoadPedidosException
 from processing.transformations import Transformation
 from pipeline.pipeline import Pipeline
+from pyspark.errors import PySparkException
 import logging
 import sys
 
@@ -1788,9 +1930,27 @@ def main():
         pipeline.run(config=config)
 
         logger.info("Pipeline finalizado com sucesso.")
-    except Exception as e:
-        logger.error(f"Erro durante a execução do job: {e}", exc_info=True)
+
+    except LoadPedidosException as e:
+        # 1. Tratamento específico para o dataset crítico de pedidos
+        logger.exception(f"Falha no carregamento de pedidos: {e}")
         sys.exit(1)
+
+    except DataHandlerException as e:
+        # 2. Tratamento genérico para qualquer outra falha de I/O
+        logger.exception(f"Erro na camada de leitura/escrita de dados: {e}")
+        sys.exit(1)
+
+    except PySparkException as e:
+        # 3. Falhas do Spark ocorridas fora da leitura (ex: ações nas transformações)
+        logger.exception(f"Erro originado no PySpark [Classe: {e.getErrorClass()}]: {e}")
+        sys.exit(1)
+
+    except Exception as e:
+        # 4. Última linha de defesa para erros inesperados
+        logger.exception(f"Erro inesperado durante a execução do job: {e}")
+        sys.exit(1)
+
     finally:
         spark.stop()
         logger.info("Spark session encerrada.")
@@ -1807,15 +1967,42 @@ Para ver isso funcionando, vamos quebrar nossa aplicação de propósito.
 1. **Teste de Arquivo Inexistente:**
 Abra o arquivo `config/settings.yaml` e altere a chave `paths.pedidos` para apontar para um arquivo que não existe.
 ```yaml
-pedidos : "./PATH-INVALIDO/data/input/datasets-csv-pedidos/data/pedidos"
+pedidos: "./PATH-INVALIDO/data/input/datasets-csv-pedidos/data/pedidos"
 
 ```
 
-*Observe o log de erro tratado.*
+Execute o pipeline:
+```bash
+spark-submit ./data-engineering-pyspark/src/main.py
 
-
-Após o teste, volte a configuração original, faça o ajuste em `config/settings.yaml`:
 ```
+
+*Observe o log e o encadeamento gracioso de exceções:*
+
+1. **No arquivo de log (`dataeng-pyspark-poo.log`)**, repare como as duas camadas se comunicam:
+   * O `DataHandler` registra o erro técnico com a classe do Spark:
+     ```text
+     ERROR - Erro de análise/metadados no Spark [Classe: PATH_NOT_FOUND]: [PATH_NOT_FOUND] Path does not exist...
+     ```
+   * O `main.py` captura a exceção de domínio `LoadPedidosException`, e no *traceback* o Python exibe a causa original preservada:
+     ```text
+     pyspark.errors.exceptions.captured.AnalysisException: [PATH_NOT_FOUND] Path does not exist...
+
+     The above exception was the direct cause of the following exception:
+
+     io_utils.exceptions.LoadPedidosException: Falha ao carregar pedidos a partir de './PATH-INVALIDO/...'
+     ```
+
+2. **No terminal**, confira o código de saída retornado ao sistema operacional imediatamente após o comando:
+   ```bash
+   echo $?
+
+   ```
+   > **Saída esperada:** `1`<br>
+   > O valor `1` (diferente de zero) comprova que o `sys.exit(1)` sinalizou corretamente ao sistema operacional (e a qualquer orquestrador como Airflow ou Dagster) que o pipeline falhou.
+
+Após o teste, volte a configuração original em `config/settings.yaml`:
+```yaml
 pedidos: "./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/"
 
 ```
@@ -1845,7 +2032,7 @@ rm ./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/corro
 
 Por que o erro do arquivo corrompido **não** apareceu no `DataHandler`, mesmo com o `try/except` lá dentro?
 
-Por causa da **avaliação preguiçosa**. O `spark.read.csv(...)` não lê nada: ele apenas registra o plano de leitura. O arquivo só é fisicamente aberto quando uma **ação** é disparada — e as ações do nosso pipeline (`show`, `write`, `count`) acontecem depois, dentro de `Transformation` e `Pipeline`. Quando a JVM finalmente tropeça no arquivo corrompido, o `try` do `load_pedidos` já foi encerrado há muito tempo, e quem captura o erro é o `except Exception` do `main.py`.
+Por causa da **avaliação preguiçosa**. O `spark.read.csv(...)` não lê nada: ele apenas registra o plano de leitura. O arquivo só é fisicamente aberto quando uma **ação** é disparada — e as ações do nosso pipeline (`show`, `write`, `count`) acontecem depois, dentro de `Transformation` e `Pipeline`. Quando o Spark finalmente tropeça no arquivo corrompido durante a execução física, o `try` do `load_pedidos` já foi encerrado há muito tempo, e quem captura o erro é o `except PySparkException` do `main.py`.
 
 > E o `df.isEmpty()`? Ele *é* uma ação, mas o Spark o resolve com um `take(1)`: lê o mínimo necessário para achar uma linha e para. Se o arquivo corrompido não for o primeiro da lista, ele nem chega a ser tocado.
 
@@ -1853,29 +2040,28 @@ Lição prática: **`try/except` só protege o que for executado dentro dele**. 
 
 #### Conclusão
 
-Saímos de um pipeline que falhava de forma silenciosa ou ilegível e chegamos a um que falha de forma **previsível, rastreável e limpa**. Três camadas de defesa foram adicionadas:
+Saímos de um pipeline que falhava de forma silenciosa ou ilegível e chegamos a um que falha de forma **previsível, rastreável e limpa**. Duas camadas centrais de defesa foram adicionadas:
 
 | Camada | Onde | O que garante |
 |---|---|---|
-| `mode: FAILFAST` | `data_handler.py` | Dado sujo **não vira `null` silenciosamente** — o processo para na hora. |
-| `except AnalysisException` / `except Py4JJavaError` | `data_handler.py` | O erro ganha **contexto de negócio** ("erro ao ler pedidos") e o nível de log correto (`error` vs. `critical`). |
-| `try/except/finally` | `main.py` | Última linha de defesa: nada escapa sem registro, o `sys.exit(1)` avisa o orquestrador de que o job falhou, e o `finally` garante o `spark.stop()` mesmo em caso de falha. |
+| `DataHandlerException` / `LoadPedidosException` | `io_utils/exceptions.py` | Desacopla o chamador do Spark; traduz falhas técnicas em exceções de negócio preservando o *traceback* original (`from e`). |
+| `try/except/finally` | `main.py` | Última linha de defesa: captura exceções de domínio e do Spark, avisa o orquestrador (`sys.exit(1)`) e garante o `spark.stop()` no `finally`. |
 
-Repare no padrão que usamos em todos os `except` do `DataHandler`: **logar e relançar** (`raise e`).
+Repare no padrão que usamos no `DataHandler`: **logar e relançar encapsulado em exceção de domínio** (`raise ... from e`).
 
 ```python
 except AnalysisException as e:
-    logger.error(f"Erro de IO/Spark: {e}")
-    raise e  # <- não engolir!
+    logger.error(f"Erro de análise/metadados no Spark [Classe: {e.getErrorClass()}]: {e}")
+    raise LoadPedidosException(f"Falha ao carregar pedidos em '{path}'") from e
 
 ```
 
-Isso não é redundância. Tratar um erro **não** significa escondê-lo: significa registrá-lo com contexto e deixá-lo subir para quem tem autoridade para decidir o que fazer. Um `except` que apenas loga e segue em frente é pior do que nenhum `except` — ele transforma uma falha ruidosa em dado corrompido silencioso, que só será descoberto semanas depois pelo time de negócio.
+Isso não é redundância. Tratar um erro **não** significa escondê-lo: significa registrá-lo com contexto técnico, traduzi-lo para o domínio da aplicação e deixá-lo subir para quem tem autoridade para decidir o que fazer. Um `except` que apenas loga e segue em frente é pior do que nenhum `except` — ele transforma uma falha ruidosa em dado corrompido silencioso, que só será descoberto semanas depois pelo time de negócio.
 
 ##### O que levar deste passo
 
-- Falhe cedo (`FAILFAST`) em vez de propagar `null` silencioso.
-- Capture exceções **específicas** (`AnalysisException`, `Py4JJavaError`) antes da genérica — cada uma diz algo diferente sobre *onde* o problema está: planejamento ou execução.
+- Encapsule erros de biblioteca em **exceções customizadas de domínio** (`LoadPedidosException`) com `raise ... from e` para manter o código desacoplado e orientado a objetos.
+- Capture primeiro exceções **específicas** (`AnalysisException`), depois a base do framework (`PySparkException`) — evite acoplar com exceções de infraestrutura legadas como `Py4JJavaError`.
 - Logue **e relance**. `except` não é sinônimo de "ignorar".
 - Um job que falhou precisa **terminar com código de saída diferente de zero**, senão o orquestrador acha que deu tudo certo.
 - Use `finally` para liberar recursos (a sessão Spark) aconteça o que acontecer.
@@ -1902,7 +2088,7 @@ Na raiz do seu projeto, crie um arquivo chamado `requirements.txt`.
 
   ```
   # requirements.txt
-  pyspark==4.1.1
+  pyspark==4.2.0
   pyyaml==6.0.3
 
   ```
@@ -1923,186 +2109,389 @@ Na raiz do seu projeto, crie um arquivo chamado `requirements.txt`.
 
 ## Passo 11: Qualidade do Código com Linter e Formatador
 
-Para manter nosso código limpo, legível e livre de erros comuns, vamos usar duas ferramentas padrão da indústria: `ruff` (linter) e `black` (formatador).
+No dia a dia da Engenharia de Dados, é muito comum encontrar códigos funcionais, mas que acumulam "dívida técnica invisível": imports esquecidos, variáveis que nunca foram utilizadas, construções frágeis e estilos inconsistentes. Em ambientes de produção — onde jobs Spark processam grandes volumes e operam 24/7 —, esse tipo de descuido gera falhas difíceis de rastrear e discussões subjetivas em revisões de código.
 
-1. Adicione as ferramentas ao `requirements.txt`:
+Para elevar nosso pipeline ao padrão de **Engenharia de Software profissional**, estabelecemos um *Quality Gate* (portão de qualidade) automatizado antes de empacotar a aplicação e criar os testes. Para isso, combinamos duas ferramentas consagradas que desempenham papéis complementares:
 
+* **Formatador (`black`) — Cuida da *Forma* (Estética):**  
+  Conhecido como o formatador "intransigente" (*The Uncompromising Code Formatter*), o `black` reescreve automaticamente os arquivos aplicando rigorosamente as diretrizes da [PEP 8](https://peps.python.org/pep-0008/). Ele padroniza espaçamentos, quebras de linha e uso de aspas. O objetivo é simples: garantir que todo o repositório pareça ter sido escrito por uma única pessoa, eliminando discussões de estilo no time.
+
+* **Linter (`ruff`) — Cuida do *Conteúdo* (Semântica e Correção):**  
+  O `ruff` realiza análise estática de código (sem precisar executá-lo) para identificar bugs potenciais, imports órfãos, variáveis não utilizadas e más práticas de Python. Desenvolvido em Rust, o `ruff` é até 100x mais rápido que ferramentas legadas (como *Flake8* e *Pylint*) e tornou-se a ferramenta de análise estática preferida da comunidade moderna de engenharia de dados.
+
+---
+
+### 1. Adicione as ferramentas ao `requirements.txt`
+
+Adicione o linter e o formatador ao arquivo `./data-engineering-pyspark/requirements.txt`:
+
+```text
+# requirements.txt
+pyspark==4.2.0
+pyyaml==6.0.3
+ruff==0.12.9
+black==25.1.0
+```
+
+*(Nota: você pode utilizar versões mais recentes compaginadas com o seu ambiente)*
+
+---
+
+### 2. Instale as novas dependências
+
+Instale as ferramentas no seu ambiente virtual (`.venv`):
+
+```bash
+pip install -r ./data-engineering-pyspark/requirements.txt
+```
+
+---
+
+### 3. Como usar as ferramentas
+
+A boa prática recomenda **formatar primeiro com `black` e inspecionar em seguida com `ruff`**:
+
+#### A. Formatação Automática com `black`
+Execute o formatador apontando para o diretório do projeto. Ele reformatará os arquivos `.py` diretamente no disco:
+
+```bash
+black ./data-engineering-pyspark
+```
+
+---
+
+### 4. Testando o Linter na Prática (Erro Intencional e `--fix`)
+
+Para entender o poder do `ruff`, vamos introduzir um erro clássico de propósito.
+
+1. Abra o arquivo `src/main.py` e adicione temporariamente um import não utilizado no início:
+
+  ```python
+  import os
   ```
-  # requirements.txt
-  pyspark==4.1.1
-  pyyaml==6.0.3
-  ruff==0.12.9
-  black==25.1.0
-  ```
 
-*(Nota: você pode usar versões mais recentes se desejar)*
-
-2. Instale as novas dependências:
+2. Agora execute o `ruff`:
 
   ```bash
-  pip install -r ./data-engineering-pyspark/requirements.txt
-
+  ruff check ./data-engineering-pyspark
   ```
 
-3. Como usar as ferramentas:
+  O `ruff` imediatamente detectará a irregularidade e exibirá uma saída similar a esta:
 
--   **Para verificar a qualidade do código (Linting):**
-    Execute o `ruff` na raiz do projeto. Ele apontará problemas de estilo, bugs potenciais e código não utilizado.
-    ```bash
-    ruff check .
+  ```text
+  F401 [*] `os` imported but unused
+   --> src/main.py:1:8
+    |
+  1 | import os
+    |        ^^
+    |
+  help: Remove unused import: `os`
 
-    ```
+  Found 1 error.
+  [*] 1 fixable with the `--fix` option.
+  ```
 
--   **Para formatar o código automaticamente (Formatação):**
-    Execute o `black` na raiz do projeto. Ele irá reformatar todos os seus arquivos `.py` para um estilo consistente.
-    ```bash
-    black .
+  Repare na indicação `[*]`: ela sinaliza que o `ruff` é capaz de corrigir essa falha de forma automática!
 
-    ```
+3. Execute o comando com a flag `--fix`:
 
-Adotar essas ferramentas torna o código mais profissional e fácil de manter, especialmente ao trabalhar em equipe.
+  ```bash
+  ruff check --fix ./data-engineering-pyspark
+  ```
+
+  Saída esperada:
+  ```text
+  Found 1 error (1 fixed, 0 remaining).
+  ```
+
+4. Verifique novamente a saúde do código:
+
+  ```bash
+  ruff check ./data-engineering-pyspark
+  ```
+
+  Saída esperada:
+  ```text
+  All checks passed!
+  ```
+
+O `import os` desnecessário foi removido automaticamente, deixando o projeto impecável e pronto para as etapas seguintes.
+
+> [!TIP]
+> **Portão de Qualidade em CI/CD:**  
+> Em equipes modernas, comandos como `black --check ./data-engineering-pyspark` e `ruff check ./data-engineering-pyspark` rodam de forma automática em esteiras de integração contínua (GitHub Actions, GitLab CI). Se um desenvolvedor abrir um Pull Request com código desformatado ou com avisos do linter, o merge é bloqueado automaticamente até que o código atenda aos padrões do projeto.
 
 ---
 
 ## Passo 12: Empacotamento da Aplicação para Distribuição
 
-O passo final da jornada de um engenheiro de software é tornar sua aplicação distribuível. Em vez de pedir para alguém clonar seu repositório e executar um script, vamos empacotar nosso pipeline em um formato que pode ser instalado com `pip` e executado com um simples comando no terminal.
+O passo final da jornada de um engenheiro de software é tornar sua aplicação distribuível. Em vez de pedir para que outro engenheiro ou o orquestrador (Airflow, Dagster, Databricks) clone seu repositório Git e rode scripts soltos, vamos empacotar nosso pipeline em um formato padronizado de mercado: o **Wheel (`.whl`)**.
 
-**1. Crie o arquivo `pyproject.toml`:**
+---
 
-Este é o arquivo de configuração padrão para projetos Python modernos. Crie-o na raiz do seu projeto.
+### 💡 Por que empacotamos aplicações PySpark em `.whl`?
 
-  ```bash
-  touch ./data-engineering-pyspark/pyproject.toml
+No desenvolvimento local, seu código roda no mesmo processo. Mas em um ambiente de produção real (AWS EMR, Google Cloud Dataproc, Kubernetes ou Databricks), o Spark opera em uma **arquitetura distribuída**:
+* **Driver:** A máquina que orquestra a aplicação e executa o script inicial (`main.py`).
+* **Workers (Executores):** Dezenas ou centenas de nós que realizam o processamento pesado e paralelo das partições de dados.
 
+Os nós executores **não possuem seu código instalado localmente nem compartilham seu disco**. Quando passamos nosso código empacotado via `--py-files pacote.whl` no comando `spark-submit`, o Spark distribui automaticamente o pacote binário para todos os executores via rede (*broadcast*), injetando seus módulos no `sys.path` de cada JVM/Python Worker sem a necessidade de instalar nada com `pip` nó por nó.
+
+> [!NOTE]
+> **No mercado atual (Databricks Workflows):**  
+> Plataformas modernas de dados utilizam diretamente o conceito de **Python Wheel Task**. Você faz o upload do `.whl` gerado pelo seu pipeline de CI/CD para o storage e o orquestrador da nuvem instancia o job diretamente a partir do entrypoint do pacote.
+
+---
+
+### 1. Organizando o Namespace do Pacote (Evitando *Namespace Pollution*)
+
+Até o Passo 11, organizamos nossos módulos (`config`, `io_utils`, `processing`, `session`, `pipeline`) diretamente dentro da pasta `src/`. No desenvolvimento diário, o Python encontra tudo sem problemas.
+
+Contudo, ao construir um pacote distribuível (`.whl`), se deixarmos essas pastas soltas na raiz de `src/`, o instalador do Python (`pip`) as colocaria diretamente na raiz do `site-packages` global. Se outra biblioteca qualquer também possuir um módulo chamado `config` ou `session`, haverá uma colisão de nomes catastrófica (**namespace collision**).
+
+A boa prática consolidada de Engenharia de Software é agrupar todos os módulos sob uma pasta raiz que represente o pacote: **`data_engineering_pyspark`**.
+
+Execute os comandos abaixo para organizar os diretórios:
+
+```bash
+# 1. Cria a pasta raiz do pacote com seu arquivo de inicialização
+mkdir -p ./data-engineering-pyspark/src/data_engineering_pyspark
+touch ./data-engineering-pyspark/src/data_engineering_pyspark/__init__.py
+
+# 2. Move os módulos do projeto para dentro do namespace do pacote
+mv ./data-engineering-pyspark/src/config ./data-engineering-pyspark/src/data_engineering_pyspark/
+mv ./data-engineering-pyspark/src/io_utils ./data-engineering-pyspark/src/data_engineering_pyspark/
+mv ./data-engineering-pyspark/src/processing ./data-engineering-pyspark/src/data_engineering_pyspark/
+mv ./data-engineering-pyspark/src/session ./data-engineering-pyspark/src/data_engineering_pyspark/
+mv ./data-engineering-pyspark/src/pipeline ./data-engineering-pyspark/src/data_engineering_pyspark/
+```
+
+Agora, atualize os imports em `src/main.py` para refletir o novo namespace:
+
+```python
+# src/main.py
+import sys
+import logging
+from data_engineering_pyspark.config.settings import carregar_config, configurar_logging
+from data_engineering_pyspark.session.spark_session import SparkSessionManager
+from data_engineering_pyspark.io_utils.data_handler import DataHandler
+from data_engineering_pyspark.processing.transformations import Transformation
+from data_engineering_pyspark.pipeline.pipeline import Pipeline
+from data_engineering_pyspark.io_utils.exceptions import DataHandlerException, LoadPedidosException
+from pyspark.errors import PySparkException
+
+logger = logging.getLogger(__name__)
+
+def main():
+    config = carregar_config()
+    configurar_logging(config["logging"])
+
+    logger.info("Iniciando a aplicação Spark...")
+    spark = SparkSessionManager.get_spark_session(config["spark"]["app_name"])
+
+    try:
+        data_handler = DataHandler(spark=spark)
+        transformer = Transformation()
+        pipeline = Pipeline(data_handler=data_handler, transformer=transformer)
+        pipeline.run(config=config)
+        logger.info("Pipeline finalizado com sucesso.")
+
+    except LoadPedidosException as e:
+        logger.exception(f"Falha no carregamento de pedidos: {e}")
+        sys.exit(1)
+
+    except DataHandlerException as e:
+        logger.exception(f"Erro na camada de leitura/escrita de dados: {e}")
+        sys.exit(1)
+
+    except PySparkException as e:
+        logger.exception(f"Erro originado no PySpark [Classe: {e.getErrorClass()}]: {e}")
+        sys.exit(1)
+
+    except Exception as e:
+        logger.exception(f"Erro inesperado durante a execução do job: {e}")
+        sys.exit(1)
+
+    finally:
+        spark.stop()
+        logger.info("Spark session encerrada.")
+
+if __name__ == "__main__":
+    main()
+```
+
+Atualize também os imports nos arquivos internos que referenciam outros módulos do projeto:
+
+* Em `src/data_engineering_pyspark/pipeline/pipeline.py`, atualize os imports do `DataHandler` e `Transformation`:
+  ```python
+  from data_engineering_pyspark.io_utils.data_handler import DataHandler
+  from data_engineering_pyspark.processing.transformations import Transformation
+  ```
+* Em `src/data_engineering_pyspark/io_utils/data_handler.py`, atualize o import da exceção:
+  ```python
+  from data_engineering_pyspark.io_utils.exceptions import LoadPedidosException
+  ```
+* **Ajuste em `settings.py` para suportar execução distribuída:**  
+  Vamos precisar fazer um ajuste importante no arquivo `src/data_engineering_pyspark/config/settings.py`. Até o momento, a função `carregar_config` utilizava o caminho fixo local `"./data-engineering-pyspark/config/settings.yaml"`. Isso atendeu muito bem o desenvolvimento até aqui, mas agora que vamos empacotar nossa biblioteca em um arquivo `.whl`, ela deve estar preparada para rodar em clusters (como Databricks ou EMR) onde o arquivo de configuração é entregue externamente pelo Spark (via flag `--files`), ficando disponível diretamente na raiz de execução (`settings.yaml`).
+
+  Substitua o conteúdo de `src/data_engineering_pyspark/config/settings.py` pelo código abaixo para tornar o carregamento resiliente e compatível com clusters e com a IDE local:
+  ```python
+  from pathlib import Path
+  import yaml
+  import logging.config
+
+  def carregar_config(path: str | None = None) -> dict:
+      """Carrega o arquivo YAML de configuração.
+
+      Ordem de resolução:
+      1. Caminho explícito fornecido por argumento
+      2. 'settings.yaml' na raiz de execução (quando distribuído via spark-submit --files)
+      3. './data-engineering-pyspark/config/settings.yaml' (desenvolvimento local na IDE)
+      """
+      if path:
+          caminho = Path(path)
+      elif Path("settings.yaml").exists():
+          caminho = Path("settings.yaml")
+      else:
+          caminho = Path("./data-engineering-pyspark/config/settings.yaml")
+
+      with open(caminho, 'r', encoding='utf-8') as file:
+          return yaml.safe_load(file)
+
+  def configurar_logging(config_logging: dict):
+      """Aplica a configuração de logging lida do YAML."""
+      logging.config.dictConfig(config_logging)
+      logging.getLogger(__name__).info("Logging configurado com sucesso via YAML.")
   ```
 
-**2. Adicione o conteúdo de configuração:**
+---
 
-Copie o seguinte conteúdo para o seu `pyproject.toml`. Ele define o nome do nosso pacote, a versão, as dependências e, o mais importante, um *script de ponto de entrada*.
+### 2. O Arquivo de Configuração do Pacote: `pyproject.toml` (PEP 517 / 518 / 621)
 
-  ```toml
-  # pyproject.toml
-  [build-system]
-  requires = ["setuptools>=61.0"]
-  build-backend = "setuptools.build_meta"
+O `pyproject.toml` é o padrão canônico da comunidade Python para metadados e empacotamento, substituindo os antigos `setup.py` e `setup.cfg`.
 
-  [project]
-  name = "dataeng_pyspark_data_pipeline"
-  version = "0.1.0"
-  authors = [
-    { name="infobarbosa", email="infobarbosa@gmail.com" },
-  ]
-  description = "Um pipeline de dados com PySpark estruturado com boas práticas de engenharia de software."
-  readme = "README.md"
-  requires-python = ">=3.8"
-  license = "MIT"
-  classifiers = [
-      "Programming Language :: Python :: 3",
-      "Operating System :: OS Independent",
-  ]
-  dependencies = [
-      "pyspark==4.1.1",
-      "pyyaml==6.0.3"
-  ]
+Crie ou atualize o arquivo `./data-engineering-pyspark/pyproject.toml`:
 
-  [project.optional-dependencies]
-  dev = [
-      "ruff==0.12.9",
-      "black==25.1.0",
-      "build==1.3.0"
-  ]
+```toml
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
-  [project.scripts]
-  run-data-pipeline = "main:main"
+[project]
+name = "data_engineering_pyspark"
+version = "0.1.0"
+authors = [
+  { name="Barbosa", email="infobarbosa@yahoo.com.br" },
+]
+description = "Pipeline de Engenharia de Dados com PySpark estruturado com boas práticas de Engenharia de Software."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pyspark>=4.2.0,<5.0.0",
+    "pyyaml>=6.0.2",
+]
 
-  [tool.setuptools]
-  package-dir = {"" = "src"}
-  packages = {find = {where = ["src"]}}
+[project.optional-dependencies]
+dev = [
+    "ruff==0.12.9",
+    "black==25.1.0",
+    "build==1.3.0",
+    "pytest==8.4.1",
+    "pytest-cov==6.0.0",
+]
 
-  ```
+[project.scripts]
+run-data-pipeline = "main:main"
 
-3. Crie um arquivo `MANIFEST.in`:
+[tool.setuptools.packages.find]
+where = ["src"]
 
-  - O arquivo:
-  ```bash
-  touch ./data-engineering-pyspark/MANIFEST.in
+[tool.pytest.ini_options]
+pythonpath = ["src", "src/data_engineering_pyspark"]
+testpaths = ["tests"]
+addopts = "-v"
+```
 
-  ```
+> [!TIP]
+> **Por que usar ranges (`>=4.2.0,<5.0.0`) em vez de fixar com `==` no `pyproject.toml`?**  
+> Em pacotes distribuíveis, fixar com `==` é uma má prática porque impede que o pacote seja instalado em ambientes que possuam uma versão patch compatível (ex: 4.2.1) e quebra a compatibilidade com ambientes de nuvem. Para congelar versões exatas em ambientes de desenvolvimento e CI, utilizamos o `requirements.txt`.
 
-  - O conteúdo:
-  ```
-  include requirements.txt
-  include README.md
+---
 
-  ```
+### 3. Crie o arquivo `README.md` do Pacote
 
-4. Crie o arquivo `README.md`:
+Este arquivo documenta o pacote gerado e é exigido pelo build:
 
-Este é o arquivo que será exibido quando alguém acessar o repositório.
-  ```bash
-  echo "[DATAENG] Meu projeto bem estruturado de dados com PySpark" > ./data-engineering-pyspark/README.md
+```bash
+echo "# Data Engineering PySpark" > ./data-engineering-pyspark/README.md
+```
 
-  ```
+---
 
-5. Adicione o pacote `build` a `requirements.txt`:
-  - Configurando o arquivo:
+### 4. Adicione o pacote `build` a `requirements.txt`
 
-    ```
-    # requirements.txt
-    pyspark==4.1.1
-    pyyaml==6.0.3
-    ruff==0.12.9
-    black==25.1.0
-    build==1.3.0
-    ```
+Certifique-se de que a ferramenta `build` está instalada no seu ambiente virtual:
 
-  - Instalando:
-    ```bash
-    pip install -r ./data-engineering-pyspark/requirements.txt
+```bash
+pip install build==1.3.0
+```
 
-    ```
+---
 
-6. Construa o pacote:
+### 5. Construindo o Pacote (`python -m build`)
 
-  ```bash
-  python -m build
+Com a ferramenta canônica `build` instalada no seu `.venv`, gere a distribuição:
 
-  ```
+```bash
+python -m build ./data-engineering-pyspark
+```
 
-Você verá que um novo diretório `dist/` foi criado, contendo o arquivo `.whl` (Wheel).
+Você verá que um diretório `dist/` foi gerado dentro de `data-engineering-pyspark/` contendo:
+* **`.whl` (Wheel):** O binário pré-construído pronto para distribuição.
+* **`.tar.gz` (Source Distribution - sdist):** O código-fonte compactado com seus metadados.
 
-7. Instale e execute sua aplicação:
+Verifique os arquivos gerados:
+```bash
+ls -lh ./data-engineering-pyspark/dist/
+```
 
-Agora, para testar, você pode instalar sua própria aplicação como se fosse qualquer outra biblioteca.
+---
 
-  - Desinstalando a versão anterior se existir
-    ```bash
-    # Desinstale a versão de desenvolvimento se já existir
-    pip uninstall dataeng_pyspark_data_pipeline -y
+### 6. Executando Diretamente no PySpark via `--py-files` e `--files`
 
-    ```
+Agora vamos submeter nossa aplicação ao Spark, fornecendo o pacote Wheel diretamente através da flag `--py-files` e o arquivo de configuração através da flag `--files`:
 
-  - Instalando a versão distribuída
-    ```bash
-    # Instala o pacote que acabamos de criar
-    pip install ./data-engineering-pyspark/dist/*.whl
+```bash
+spark-submit --master "local[*]" \
+  --py-files ./data-engineering-pyspark/dist/data_engineering_pyspark-0.1.0-py3-none-any.whl \
+  --files ./data-engineering-pyspark/config/settings.yaml \
+  ./data-engineering-pyspark/src/main.py
+```
 
-    ```
+> [!TIP]
+> **Cadê o `pip install`?**  
+> Repare que **não** precisamos executar `pip install` no ambiente local antes de rodar o `spark-submit`! Essa é justamente a vantagem do `--py-files`: em vez de depender de instalações locais prévias, o Spark injeta o arquivo `.whl` dinamicamente no Driver e em todos os nós Executores do cluster.
 
-    [OPCIONAL] - Caso tenha instado antes e precise forçar a reinstalação:
-    ```
-    pip install --force-reinstall ./data-engineering-pyspark/dist/dataeng_pyspark_data_pipeline-0.1.0-py3-none-any.whl
+> [!NOTE]
+> **⚙️ Por que o `settings.yaml` não vai dentro do `.whl`? (The Twelve-Factor App)**  
+> Você deve ter notado que injetamos o arquivo de configuração através da flag `--files` em vez de empacotá-lo dentro do Wheel. Essa é uma **boa prática mandatória em pipelines modernos de Engenharia de Dados** (Princípio III do *The Twelve-Factor App: Configurações*):
+> 
+> 1. **Código Imutável vs. Configuração Mutável:** O código empacotado no `.whl` é estritamente imutável. Ele é compilado apenas uma vez pela esteira de CI/CD e promovido de forma idêntica entre os ambientes de **Desenvolvimento**, **Homologação** e **Produção**.
+> 2. **Separação por Ambiente:** Cada ambiente possui seus próprios parâmetros (endereços de brokers Kafka, buckets S3/Data Lake, credenciais e níveis de log). Se o YAML estivesse dentro do `.whl`, teríamos que gerar um pacote `.whl` diferente para cada ambiente — o que viola o princípio de rastreabilidade e imutabilidade de artefatos.
+> 3. **Como o Spark entrega o arquivo:** Ao utilizarmos `--files ./data-engineering-pyspark/config/settings.yaml` (ou apontando para `s3://meu-bucket/config/settings-prod.yaml` em produção), o Spark envia o arquivo para a máquina do Driver e o disponibiliza na raiz de trabalho (`./settings.yaml`).
+> 4. **Resolução no Código:** Nossa função `carregar_config()` no `settings.py` verifica primeiramente se existe um `settings.yaml` na raiz de execução. Se existir (cenário do cluster via `--files`), ela o utiliza; caso contrário, recorre ao caminho local de desenvolvimento. Dessa forma, seu código funciona perfeitamente tanto no VS Code local quanto em clusters gerenciados (EMR, Databricks, GCP Dataproc ou Kubernetes).
 
-    ```
+---
 
-  - Executando a aplicação
-    ```bash
-    spark-submit --master "local[*]" \
-      --py-files ./data-engineering-pyspark/dist/dataeng_pyspark_data_pipeline-0.1.0-py3-none-any.whl \
-      ./data-engineering-pyspark/src/main.py
-
-    ```
+> [!NOTE]
+> **🚀 No Radar do Mercado: `uv` (Astral)**  
+> Nos times mais modernos de engenharia de dados (2024–2026), a ferramenta **`uv`** (escrita em Rust pela Astral) tem se tornado o padrão do ecossistema Python. Ela substitui `pip`, `virtualenv`, `pip-tools` e `build` com velocidade até 100x superior. Em pipelines CI/CD com `uv`, o build é tão simples quanto executar `uv build`.
 
 ## Passo 13: Testes Automatizados
 
@@ -2130,7 +2519,7 @@ Nem todo teste é igual. Vamos organizar nossa suíte em duas camadas:
 - Atualize o `requirements.txt`:
   ```
   # requirements.txt
-  pyspark==4.1.1
+  pyspark==4.2.0
   pyyaml==6.0.3
   ruff==0.12.9
   black==25.1.0
@@ -2183,14 +2572,14 @@ Ao final, a árvore ficará assim:
 
 ### 13-D. Configure o pytest (no `pyproject.toml`)
 
-Sem configuração, o `import` das nossas classes (`from processing.transformations import ...`) falharia, porque o código fica em `src/`. Em vez de criar um novo arquivo, vamos **centralizar** a configuração no `pyproject.toml` que você já criou no Passo 12, adicionando a seção `[tool.pytest.ini_options]`.
+Sem configuração, o `import` das nossas classes falharia, porque o código fica em `src/`. Em vez de criar um novo arquivo, centralizamos a configuração no `pyproject.toml` que você configurou no Passo 12.
 
-- Edite o `pyproject.toml` (criado no Passo 12) e **adicione ao final** a seção `[tool.pytest.ini_options]`:
+- Se ainda não adicionou no Passo 12, edite o `pyproject.toml` e adicione ao final a seção `[tool.pytest.ini_options]`:
 
   ```toml
-  # pyproject.toml (adicione ao final)
+  # pyproject.toml (adicione ao final se ainda não estiver presente)
   [tool.pytest.ini_options]
-  pythonpath = ["src"]
+  pythonpath = ["src", "src/data_engineering_pyspark"]
   testpaths = ["tests"]
   markers = [
       "unit: Testes unitários isolados (sem I/O externo)",
@@ -2200,7 +2589,7 @@ Sem configuração, o `import` das nossas classes (`from processing.transformati
   ```
 
 O que cada opção faz:
-- **`pythonpath`** — adiciona `src/` ao caminho de import. É por isso que escrevemos `from processing.transformations import Transformation` (e **não** `from src.processing...`).
+- **`pythonpath`** — adiciona `src/` e `src/data_engineering_pyspark/` ao caminho de import. Isso permite flexibilidade total: você pode importar tanto pelo namespace completo (`from data_engineering_pyspark.processing.transformations import Transformation`) quanto pelo formato direto (`from processing.transformations import Transformation`), garantindo compatibilidade contínua.
 - **`testpaths`** — onde o pytest procura testes.
 - **`markers`** — rótulos para categorizar testes (ex.: rodar só os unitários com `pytest -m unit`).
 - **`addopts`** — opções sempre aplicadas (aqui, saída detalhada).
@@ -2443,7 +2832,7 @@ O `DataHandler` lê e escreve arquivos. Mas **não** queremos depender dos datas
   import os
   import pytest
   from pyspark.sql.types import (
-      ArrayType, FloatType, LongType, StringType, StructField, StructType,
+      ArrayType, FloatType, LongType, StructField, StructType,
   )
 
   from io_utils.data_handler import DataHandler
@@ -2791,13 +3180,13 @@ A saída lista cada teste (graças ao `-v` do `addopts`):
 
   ```
   ============================= test session starts ==============================
-  collected 18 items
+  collected 25 items
 
   tests/integration/test_pipeline.py::TestPipelineOrquestracao::test_le_clientes_com_path_da_config PASSED
   ...
   tests/unit/test_transformations.py::TestAddValorTotalPedidos::test_calcula_valor_unitario_por_quantidade PASSED
   ...
-  ============================== 18 passed in 12.34s =============================
+  ============================== 25 passed in 9.87s ==============================
   ```
 
 Para rodar **apenas** uma camada, selecione pelo diretório:

@@ -1,6 +1,6 @@
 # src/config/settings.yaml
 spark:
-  app_name: "Analise de Pedidos"
+  app_name: "Order Analysis"
 
 paths:
   clientes: "./data-engineering-pyspark/data/input/dataset-json-clientes/data/clientes.json.gz"
@@ -19,23 +19,23 @@ logging:
   version: 1
   disable_existing_loggers: False
   formatters:
-    padrao:
+    default:
       format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
       datefmt: "%Y-%m-%d %H:%M:%S"
   handlers:
     console:
       class: logging.StreamHandler
       level: INFO
-      formatter: padrao
+      formatter: default
       stream: ext://sys.stdout
-    arquivo:
+    file:
       class: logging.FileHandler
-      level: WARN
-      formatter: padrao
-      filename: "./data-engineering-pyspark/logs/pipeline_errors.log"
+      level: INFO
+      formatter: default
+      filename: "./data-engineering-pyspark/logs/dataeng-pyspark-poo.log"
 
   root:
     # O nível do root deve ser o menor (mais detalhado) dos handlers para não filtrar mensagens precocemente
     level: INFO
-    handlers: [console, arquivo]
+    handlers: [console, file]
     
