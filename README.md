@@ -1,5 +1,11 @@
 # Enterprise Software Engineering with PySpark
 
+<p align="center">
+  <img src="assets/images/Enterprise_Software_Engineering_with_PySpark.png"
+       alt="Enterprise PySpark Software Engineering Architecture"
+       width="100%">
+</p>
+
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PySpark](https://img.shields.io/badge/pyspark-3.5%2B-orange.svg)](https://spark.apache.org/)
 [![Testing: Pytest](https://img.shields.io/badge/testing-pytest-yellow.svg)](https://docs.pytest.org/)
