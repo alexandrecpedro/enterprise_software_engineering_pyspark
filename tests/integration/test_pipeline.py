@@ -1,8 +1,9 @@
 # tests/integration/test_pipeline.py
 import gzip
 import json
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from pyspark.sql.types import (
     ArrayType,
     DateType,

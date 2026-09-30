@@ -2,12 +2,12 @@
 import gzip
 import json
 import os
+
 import pytest
 from pyspark.sql.types import (
     ArrayType,
     FloatType,
     LongType,
-    StringType,
     StructField,
     StructType,
 )

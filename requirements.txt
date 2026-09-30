@@ -1,7 +1,7 @@
 black==26.5.1
 boto3==1.43.95
 botocore==1.43.95
-build==1.6.1
+build==1.3.0
 click==8.5.0
 colorama==0.4.6
 coverage==7.16.1

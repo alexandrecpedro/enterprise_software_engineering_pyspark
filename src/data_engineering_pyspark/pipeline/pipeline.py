@@ -1,7 +1,8 @@
 # src/pipeline/pipeline.py
 import logging
-from io_utils.data_handler import DataHandler
-from processing.transformations import Transformation
+
+from data_engineering_pyspark.io_utils.data_handler import DataHandler
+from data_engineering_pyspark.processing.transformations import Transformation
 
 logger = logging.getLogger(__name__)
 
