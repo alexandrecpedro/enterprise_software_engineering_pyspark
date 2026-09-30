@@ -32,7 +32,7 @@ logging:
       class: logging.FileHandler
       level: INFO
       formatter: default
-      filename: "dataeng-pyspark-poo.log"
+      filename: "data-engineering-pyspark/logs/dataeng-pyspark-poo.log"
 
   root:
     # O nível do root deve ser o menor (mais detalhado) dos handlers para não filtrar mensagens precocemente
