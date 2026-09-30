@@ -4,7 +4,12 @@ import json
 import os
 import pytest
 from pyspark.sql.types import (
-    ArrayType, FloatType, LongType, StringType, StructField, StructType,
+    ArrayType,
+    FloatType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
 )
 
 from io_utils.data_handler import DataHandler
@@ -14,10 +19,22 @@ from io_utils.data_handler import DataHandler
 def arquivo_clientes_gz(tmp_path):
     """Arquivo JSON gzipado com dois clientes de exemplo."""
     clientes = [
-        {"id": 1, "nome": "Ana Lima", "data_nasc": "1985-03-10",
-         "cpf": "000.000.000-00", "email": "ana@test.com", "interesses": ["Tech"]},
-        {"id": 2, "nome": "Carlos Melo", "data_nasc": "1990-07-22",
-         "cpf": "111.111.111-11", "email": "carlos@test.com", "interesses": []},
+        {
+            "id": 1,
+            "nome": "Ana Lima",
+            "data_nasc": "1985-03-10",
+            "cpf": "000.000.000-00",
+            "email": "ana@test.com",
+            "interesses": ["Tech"],
+        },
+        {
+            "id": 2,
+            "nome": "Carlos Melo",
+            "data_nasc": "1990-07-22",
+            "cpf": "111.111.111-11",
+            "email": "carlos@test.com",
+            "interesses": [],
+        },
     ]
     gz_path = tmp_path / "clientes.json.gz"
     with gzip.open(gz_path, "wt", encoding="utf-8") as f:
@@ -59,14 +76,20 @@ class TestLoadPedidos:
 
     def test_le_csv_gz_com_separador_ponto_e_virgula(self, spark, arquivo_pedidos_gz):
         df = DataHandler(spark).load_pedidos(
-            arquivo_pedidos_gz, compression="gzip", header=True, sep=";",
+            arquivo_pedidos_gz,
+            compression="gzip",
+            header=True,
+            sep=";",
         )
         assert df.count() == 3
 
     def test_schema_pedidos_tem_tipos_numericos(self, spark, arquivo_pedidos_gz):
         """Sem schema, valor_unitario e quantidade viriam como String e a multiplicação falharia."""
         df = DataHandler(spark).load_pedidos(
-            arquivo_pedidos_gz, compression="gzip", header=True, sep=";",
+            arquivo_pedidos_gz,
+            compression="gzip",
+            header=True,
+            sep=";",
         )
         tipos = {f.name: f.dataType for f in df.schema.fields}
         assert isinstance(tipos["valor_unitario"], FloatType)
@@ -77,10 +100,12 @@ class TestWriteParquet:
 
     def test_dados_gravados_podem_ser_relidos(self, spark, tmp_path):
         """Verificar só a criação do diretório não basta: relemos para garantir integridade."""
-        schema = StructType([
-            StructField("id_cliente", LongType(), True),
-            StructField("valor_total", FloatType(), True),
-        ])
+        schema = StructType(
+            [
+                StructField("id_cliente", LongType(), True),
+                StructField("valor_total", FloatType(), True),
+            ]
+        )
         df = spark.createDataFrame([(1, 3000.0), (2, 300.0)], schema)
         output_path = str(tmp_path / "saida_parquet")
 

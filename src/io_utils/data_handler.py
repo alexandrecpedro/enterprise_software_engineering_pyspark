@@ -1,6 +1,5 @@
 # src/io_utils/data_handler.py
 import logging
-from py4j.protocol import Py4JJavaError
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import (
     StructType,
@@ -12,7 +11,8 @@ from pyspark.sql.types import (
     FloatType,
     TimestampType,
 )
-from pyspark.sql.utils import AnalysisException
+from pyspark.errors import AnalysisException, PySparkException
+from io_utils.exceptions import LoadPedidosException
 
 logger = logging.getLogger(__name__)
 
@@ -74,17 +74,27 @@ class DataHandler:
                     f"ATENÇÃO: O arquivo em '{path}' foi lido mas não contém registros."
                 )
 
+            count = df.count()
+            logger.info(f"O DataFrame contém {count} registros.")
+
             return df
 
         except AnalysisException as e:
-            logger.error(f"Erro de IO/Spark: {e}")
-            raise e
-
-        except Py4JJavaError as e:
-            logger.critical(
-                f"Erro Crítico na JVM (possível arquivo corrompido ou erro de memória): {e}"
+            logger.error(
+                f"Erro de análise/metadados no Spark [Classe: {e.getErrorClass()}]: {e}"
             )
-            raise e
+            # Encapsula o erro técnico na exceção de negócio mantendo o traceback original (from e)
+            raise LoadPedidosException(
+                f"Falha ao carregar pedidos a partir de '{path}'"
+            ) from e
+
+        except PySparkException as e:
+            logger.error(
+                f"Erro de processamento no PySpark [Classe: {e.getErrorClass()}]: {e}"
+            )
+            raise LoadPedidosException(
+                f"Erro no motor Spark ao carregar pedidos em '{path}'"
+            ) from e
 
     def write_parquet(self, df: DataFrame, path: str):
         """

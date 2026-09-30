@@ -5,6 +5,7 @@ from processing.transformations import Transformation
 
 logger = logging.getLogger(__name__)
 
+
 class Pipeline:
     """
     Encapsula a lógica de execução do pipeline de dados.

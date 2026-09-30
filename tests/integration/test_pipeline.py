@@ -4,33 +4,42 @@ import json
 import pytest
 from unittest.mock import MagicMock
 from pyspark.sql.types import (
-    ArrayType, DateType, FloatType, LongType, StringType,
-    StructField, StructType, TimestampType,
+    ArrayType,
+    DateType,
+    FloatType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
 )
 
 from io_utils.data_handler import DataHandler
 from pipeline.pipeline import Pipeline
 from processing.transformations import Transformation
 
+SCHEMA_PEDIDOS = StructType(
+    [
+        StructField("id_pedido", StringType(), True),
+        StructField("produto", StringType(), True),
+        StructField("valor_unitario", FloatType(), True),
+        StructField("quantidade", LongType(), True),
+        StructField("data_criacao", TimestampType(), True),
+        StructField("uf", StringType(), True),
+        StructField("id_cliente", LongType(), True),
+    ]
+)
 
-SCHEMA_PEDIDOS = StructType([
-    StructField("id_pedido", StringType(), True),
-    StructField("produto", StringType(), True),
-    StructField("valor_unitario", FloatType(), True),
-    StructField("quantidade", LongType(), True),
-    StructField("data_criacao", TimestampType(), True),
-    StructField("uf", StringType(), True),
-    StructField("id_cliente", LongType(), True),
-])
-
-SCHEMA_CLIENTES = StructType([
-    StructField("id", LongType(), True),
-    StructField("nome", StringType(), True),
-    StructField("data_nasc", DateType(), True),
-    StructField("cpf", StringType(), True),
-    StructField("email", StringType(), True),
-    StructField("interesses", ArrayType(StringType()), True),
-])
+SCHEMA_CLIENTES = StructType(
+    [
+        StructField("id", LongType(), True),
+        StructField("nome", StringType(), True),
+        StructField("data_nasc", DateType(), True),
+        StructField("cpf", StringType(), True),
+        StructField("email", StringType(), True),
+        StructField("interesses", ArrayType(StringType()), True),
+    ]
+)
 
 
 @pytest.fixture
@@ -50,13 +59,17 @@ def config_teste():
 @pytest.fixture
 def dataframes_mock(spark):
     pedidos_df = spark.createDataFrame(
-        [("p1", "TV", 1500.0, 2, None, "SP", 1),
-         ("p2", "PC", 3000.0, 1, None, "RJ", 2)],
+        [
+            ("p1", "TV", 1500.0, 2, None, "SP", 1),
+            ("p2", "PC", 3000.0, 1, None, "RJ", 2),
+        ],
         SCHEMA_PEDIDOS,
     )
     clientes_df = spark.createDataFrame(
-        [(1, "Ana Lima", None, "000.000.000-00", "ana@test.com", None),
-         (2, "Carlos Melo", None, "111.111.111-11", "carlos@test.com", None)],
+        [
+            (1, "Ana Lima", None, "000.000.000-00", "ana@test.com", None),
+            (2, "Carlos Melo", None, "111.111.111-11", "carlos@test.com", None),
+        ],
         SCHEMA_CLIENTES,
     )
     return pedidos_df, clientes_df
@@ -78,12 +91,17 @@ class TestPipelineOrquestracao:
         Pipeline(handler, Transformation()).run(config_teste)
         handler.load_clientes.assert_called_once_with(path="/mock/clientes.json.gz")
 
-    def test_le_pedidos_com_parametros_da_config(self, spark, config_teste, dataframes_mock):
+    def test_le_pedidos_com_parametros_da_config(
+        self, spark, config_teste, dataframes_mock
+    ):
         """Um separador errado faria o CSV ser lido como uma coluna só — sem erro, mas com dados errados."""
         handler = _handler_mock(*dataframes_mock)
         Pipeline(handler, Transformation()).run(config_teste)
         handler.load_pedidos.assert_called_once_with(
-            path="/mock/pedidos/", compression="gzip", header=True, sep=";",
+            path="/mock/pedidos/",
+            compression="gzip",
+            header=True,
+            sep=";",
         )
 
     def test_grava_no_path_de_output(self, spark, config_teste, dataframes_mock):
@@ -98,10 +116,22 @@ class TestPipelineEndToEnd:
 
     def test_pipeline_completo_gera_parquet_valido(self, spark, tmp_path):
         clientes = [
-            {"id": 1, "nome": "Ana Lima", "data_nasc": "1985-03-10",
-             "cpf": "000.000.000-00", "email": "ana@test.com", "interesses": ["Tech"]},
-            {"id": 2, "nome": "Carlos Melo", "data_nasc": "1990-07-22",
-             "cpf": "111.111.111-11", "email": "carlos@test.com", "interesses": []},
+            {
+                "id": 1,
+                "nome": "Ana Lima",
+                "data_nasc": "1985-03-10",
+                "cpf": "000.000.000-00",
+                "email": "ana@test.com",
+                "interesses": ["Tech"],
+            },
+            {
+                "id": 2,
+                "nome": "Carlos Melo",
+                "data_nasc": "1990-07-22",
+                "cpf": "111.111.111-11",
+                "email": "carlos@test.com",
+                "interesses": [],
+            },
         ]
         clientes_path = tmp_path / "clientes.json.gz"
         with gzip.open(clientes_path, "wt", encoding="utf-8") as f:
