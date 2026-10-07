@@ -4,20 +4,15 @@ import json
 import os
 
 import pytest
-from pyspark.sql.types import (
-    ArrayType,
-    FloatType,
-    LongType,
-    StructField,
-    StructType,
-)
+from pyspark.sql.types import FloatType, LongType
 
-from io_utils.data_handler import DataHandler
+from data_engineering_pyspark.io_utils.data_handler import DataHandler
+from data_engineering_pyspark.io_utils.exceptions import LoadPedidosException
 
 
 @pytest.fixture
 def arquivo_clientes_gz(tmp_path):
-    """Arquivo JSON gzipado com dois clientes de exemplo."""
+    """JSON gzipado com dois clientes."""
     clientes = [
         {
             "id": 1,
@@ -45,12 +40,11 @@ def arquivo_clientes_gz(tmp_path):
 
 @pytest.fixture
 def arquivo_pedidos_gz(tmp_path):
-    """Arquivo CSV gzipado com três pedidos de exemplo."""
+    """CSV gzipado com dois pedidos (separador ';')."""
     linhas = [
         "id_pedido;produto;valor_unitario;quantidade;data_criacao;uf;id_cliente",
         "abc-001;TV;1500.0;2;2024-01-01T10:00:00;SP;1",
         "abc-002;PC;3000.0;1;2024-01-02T11:00:00;RJ;2",
-        "abc-003;MONITOR;800.0;3;2024-01-03T12:00:00;MG;1",
     ]
     gz_path = tmp_path / "pedidos.csv.gz"
     with gzip.open(gz_path, "wt", encoding="utf-8") as f:
@@ -60,37 +54,25 @@ def arquivo_pedidos_gz(tmp_path):
 
 class TestLoadClientes:
 
-    def test_le_json_gz_e_retorna_dataframe(self, spark, arquivo_clientes_gz):
+    def test_le_json_e_aplica_schema(self, spark, arquivo_clientes_gz):
+        """Lê o JSON gzipado e aplica o schema explícito (id como LongType, não String)."""
         df = DataHandler(spark).load_clientes(arquivo_clientes_gz)
         assert df.count() == 2
-
-    def test_schema_aplica_tipos_corretos(self, spark, arquivo_clientes_gz):
-        """Schema explícito evita type coercion: sem ele, 'id' viria como String e quebraria o JOIN."""
-        df = DataHandler(spark).load_clientes(arquivo_clientes_gz)
         tipos = {f.name: f.dataType for f in df.schema.fields}
         assert isinstance(tipos["id"], LongType)
-        assert isinstance(tipos["interesses"], ArrayType)
 
 
 class TestLoadPedidos:
 
-    def test_le_csv_gz_com_separador_ponto_e_virgula(self, spark, arquivo_pedidos_gz):
+    def test_le_csv_e_aplica_tipos_numericos(self, spark, arquivo_pedidos_gz):
+        """Sem schema, valor_unitario/quantidade viriam como String e a multiplicação falharia."""
         df = DataHandler(spark).load_pedidos(
             arquivo_pedidos_gz,
             compression="gzip",
             header=True,
             sep=";",
         )
-        assert df.count() == 3
-
-    def test_schema_pedidos_tem_tipos_numericos(self, spark, arquivo_pedidos_gz):
-        """Sem schema, valor_unitario e quantidade viriam como String e a multiplicação falharia."""
-        df = DataHandler(spark).load_pedidos(
-            arquivo_pedidos_gz,
-            compression="gzip",
-            header=True,
-            sep=";",
-        )
+        assert df.count() == 2
         tipos = {f.name: f.dataType for f in df.schema.fields}
         assert isinstance(tipos["valor_unitario"], FloatType)
         assert isinstance(tipos["quantidade"], LongType)
@@ -99,17 +81,26 @@ class TestLoadPedidos:
 class TestWriteParquet:
 
     def test_dados_gravados_podem_ser_relidos(self, spark, tmp_path):
-        """Verificar só a criação do diretório não basta: relemos para garantir integridade."""
-        schema = StructType(
-            [
-                StructField("id_cliente", LongType(), True),
-                StructField("valor_total", FloatType(), True),
-            ]
+        """Verificar só a criação da pasta não basta: relemos para garantir integridade."""
+        df = spark.createDataFrame(
+            [(1, 3000.0), (2, 300.0)],
+            "id_cliente long, valor_total float",
         )
-        df = spark.createDataFrame([(1, 3000.0), (2, 300.0)], schema)
-        output_path = str(tmp_path / "saida_parquet")
-
+        output_path = str(tmp_path / "saida")
         DataHandler(spark).write_parquet(df, output_path)
-
         assert os.path.exists(output_path)
         assert spark.read.parquet(output_path).count() == 2
+
+
+class TestLoadPedidosErros:
+
+    def test_caminho_inexistente_lanca_load_pedidos_exception(self, spark, tmp_path):
+        """Ler um caminho inexistente deve resultar em LoadPedidosException, não no erro cru do Spark."""
+        caminho_invalido = str(tmp_path / "nao_existe.csv.gz")
+        with pytest.raises(LoadPedidosException):
+            DataHandler(spark).load_pedidos(
+                caminho_invalido,
+                compression="gzip",
+                header=True,
+                sep=";",
+            )

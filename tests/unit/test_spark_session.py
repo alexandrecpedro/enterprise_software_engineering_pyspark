@@ -1,7 +1,7 @@
 # tests/unit/test_spark_session.py
 from pyspark.sql import SparkSession
 
-from session.spark_session import SparkSessionManager
+from data_engineering_pyspark.session.spark_session import SparkSessionManager
 
 
 class TestSparkSessionManager:

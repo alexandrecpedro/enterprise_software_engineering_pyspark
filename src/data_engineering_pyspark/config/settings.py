@@ -1,6 +1,6 @@
 # src/config/settings.py
-import os
 import logging.config
+import os
 from pathlib import Path
 
 import yaml
@@ -12,21 +12,32 @@ def carregar_config(path: str | None = None) -> dict:
     Ordem de resolução:
     1. Caminho explícito fornecido por argumento
     2. 'settings.yaml' na raiz de execução (quando distribuído via spark-submit --files)
-    3. './data-engineering-pyspark/config/settings.yaml' (desenvolvimento local na IDE)
+    3. 'config/settings.yaml' (desenvolvimento local na IDE)
     """
-    padrao = Path("./data-engineering-pyspark/config/settings.yaml")
+    # Se 'path' for fornecido, ele é a única opção válida
+    candidatos = (
+        [Path(path)]
+        if path is not None
+        else [
+            Path("settings.yaml"),
+            Path("config/settings.yaml"),
+        ]
+    )
 
-    candidatos = [
-        Path(path) if path else None,
-        Path("settings.yaml"),
-        padrao,
-    ]
+    # Encontra o primeiro caminho existente
+    caminho = next((c for c in candidatos if c.exists()), None)
 
-    # Retorna o primeiro caminho válido que realmente exista no disco
-    caminho = next((c for c in candidatos if c and c.exists()), padrao)
+    if caminho is None:
+        msg = (
+            f"Arquivo não encontrado: {path}"
+            if path
+            else "Nenhum 'settings.yaml' encontrado nos caminhos padrão."
+        )
+        raise FileNotFoundError(msg)
 
     with open(caminho, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
+
 
 def configurar_logging(config_logging: dict):
     """Aplica a configuração de logging lida do YAML, criando diretórios se necessário."""

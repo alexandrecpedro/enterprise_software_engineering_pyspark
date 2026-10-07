@@ -3,10 +3,10 @@ spark:
   app_name: "Order Analysis"
 
 paths:
-  clientes: "./data-engineering-pyspark/data/input/dataset-json-clientes/data/clientes.json.gz"
-  pedidos: "./data-engineering-pyspark/data/input/datasets-csv-pedidos/data/pedidos/"
+  clientes: "./data/input/dataset-json-clientes/data/clientes.json.gz"
+  pedidos: "./data/input/datasets-csv-pedidos/data/pedidos/"
   # pedidos : "./PATH-INVALIDO/data/input/datasets-csv-pedidos/data/pedidos" ## TESTE PATH INVALIDO
-  output: "./data-engineering-pyspark/data/output/pedidos_por_cliente"
+  output: "./data/output/pedidos_por_cliente"
 
 file_options:
   pedidos_csv:
@@ -32,7 +32,7 @@ logging:
       class: logging.FileHandler
       level: INFO
       formatter: default
-      filename: "data-engineering-pyspark/logs/dataeng-pyspark-poo.log"
+      filename: "logs/dataeng-pyspark-poo.log"
 
   root:
     # O nível do root deve ser o menor (mais detalhado) dos handlers para não filtrar mensagens precocemente

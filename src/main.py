@@ -6,10 +6,15 @@ from pyspark.errors import PySparkException
 
 from data_engineering_pyspark.config.settings import carregar_config, configurar_logging
 from data_engineering_pyspark.io_utils.data_handler import DataHandler
-from data_engineering_pyspark.io_utils.exceptions import DataHandlerException, LoadPedidosException
+from data_engineering_pyspark.io_utils.exceptions import (
+    DataHandlerException,
+    LoadPedidosException,
+)
 from data_engineering_pyspark.pipeline.pipeline import Pipeline
 from data_engineering_pyspark.processing.transformations import Transformation
 from data_engineering_pyspark.session.spark_session import SparkSessionManager
+
+logger = logging.getLogger(__name__)
 
 
 def main():

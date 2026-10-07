@@ -2,7 +2,7 @@
 import pytest
 import yaml
 
-from config.settings import carregar_config
+from data_engineering_pyspark.config.settings import carregar_config
 
 
 @pytest.fixture
